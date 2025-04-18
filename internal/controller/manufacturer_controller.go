@@ -275,17 +275,9 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 }
 
 func (c *ManufacturerController) SaveToFile(filePath string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Проверяем, есть ли что сохранять
-	if len(c.manufacturers) == 0 {
-		return errors.New("no manufacturers to save")
-	}
-
 	file, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %v", err)
+		return err
 	}
 	defer file.Close()
 
@@ -293,9 +285,19 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 	defer writer.Flush()
 
 	// Записываем заголовки
-	headers := []string{"ID", "Name", "Country", "Address", "Phone", "Email", "ProductType", "FoundedYear", "Revenue"}
+	headers := []string{
+		"ID",
+		"Name",
+		"Country",
+		"Address",
+		"Phone",
+		"Email",
+		"ProductType",
+		"FoundedYear",
+		"Revenue",
+	}
 	if err := writer.Write(headers); err != nil {
-		return fmt.Errorf("failed to write headers: %v", err)
+		return err
 	}
 
 	// Записываем данные
@@ -312,15 +314,11 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 			strconv.FormatFloat(m.Revenue, 'f', 2, 64),
 		}
 		if err := writer.Write(record); err != nil {
-			return fmt.Errorf("failed to write record: %v", err)
+			return err
 		}
 	}
 
-	// Проверяем ошибки записи
-	if err := writer.Error(); err != nil {
-		return fmt.Errorf("csv write error: %v", err)
-	}
-
+	c.currentFile = filePath
 	return nil
 }
 
@@ -496,25 +494,37 @@ func (c *ManufacturerController) NewDatabase() {
 	c.currentFile = ""
 }
 
+// Изменяем сигнатуру метода для работы с указателем
 func (c *ManufacturerController) AddManufacturer(m *model.Manufacturer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Проверяем дубликаты ID
+	// Проверяем дубликаты ID (если нужно)
 	for _, existing := range c.manufacturers {
 		if existing.ID == m.ID {
-			return fmt.Errorf("производитель с ID %d уже существует", m.ID)
+			return fmt.Errorf("manufacturer with ID %d already exists", m.ID)
 		}
 	}
 
+	// Генерируем новый ID
+	maxID := 0
+	for _, item := range c.manufacturers {
+		if item.ID > maxID {
+			maxID = item.ID
+		}
+	}
+	m.ID = maxID + 1
+
+	// Добавляем в список (разыменовываем указатель)
 	c.manufacturers = append(c.manufacturers, *m)
 
-	// Автоматически сохраняем при добавлении
+	// Автоматически сохраняем, если файл указан
 	if c.currentFile != "" {
 		return c.SaveToFile(c.currentFile)
 	}
 	return nil
 }
+
 func (c *ManufacturerController) SetCurrentFile(path string) {
 	c.currentFile = path
 }

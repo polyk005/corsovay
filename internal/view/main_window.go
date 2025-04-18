@@ -324,11 +324,7 @@ func (mw *MainWindow) onSaveAsWithPrompt() {
 }
 
 func (mw *MainWindow) onAdd() {
-	newID := mw.controller.GetNextID()
-	newManufacturer := model.Manufacturer{
-		ID: newID,
-	}
-
+	newManufacturer := model.Manufacturer{}
 	mw.showEditDialog(&newManufacturer, true)
 }
 

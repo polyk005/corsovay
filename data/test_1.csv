@@ -1,5 +1,5 @@
 ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
-1,Tree,Moscow,Freedom st. 15,89999992354,rbhb05@mail.ru,Hay,0,9990.00
+1,Tree,Moscow,Freedom st. 15,89999992354,rbhb05@mail.ru,Hay,0,0.00
 2,Stone,SPb,Nevsky 120,89999991111,stone@mail.ru,Rocks,0,0.00
 3,Water,Sochi,Beach ave. 5,89999992222,water@mail.ru,Liquids,0,0.00
 4,Fire,Kazan,Flame st. 7,89999993333,fire@mail.ru,Coal,0,0.00
@@ -19,3 +19,4 @@ ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
 18,Gas,Novosibirsk,Flammable st. 19,89999997788,gas@mail.ru,Fuel,0,0.00
 19,Concrete,Yaroslavl,Solid st. 77,89999998899,concrete@mail.ru,Blocks,0,0.00
 20,Bricks,Smolensk,Square st. 94,89999990011,bricks@mail.ru,Masonry,0,0.00
+21,vnb,bhb,bjhb,8797676,vgvcv@mail.ru,fnjanjf,2000,9990.00
