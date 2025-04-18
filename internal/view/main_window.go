@@ -28,6 +28,7 @@ type MainWindow struct {
 	locale         *localization.Locale
 	currentFile    string
 	unsavedChanges bool
+	selectedRow    int
 }
 
 func NewMainWindow(controller *controller.ManufacturerController, locale *localization.Locale) *MainWindow {
@@ -216,17 +217,45 @@ func (mw *MainWindow) onAdd() {
 }
 
 func (mw *MainWindow) onEdit(row int) {
+	if row == -1 {
+		// Если вызвано из меню, используем сохраненную строку
+		row = mw.selectedRow
+	}
+
 	if row <= 0 {
+		dialog.ShowInformation("No Selection", "Please select a manufacturer first", mw.window)
 		return
 	}
 
 	manufacturers, err := mw.controller.GetAllManufacturers()
 	if err != nil || row-1 >= len(manufacturers) {
+		dialog.ShowError(errors.New("invalid selection"), mw.window)
 		return
 	}
 
 	manufacturer := manufacturers[row-1]
 	mw.showEditDialog(&manufacturer, false)
+}
+
+func (mw *MainWindow) onDelete(row int) {
+	if row == -1 {
+		// Если вызвано из меню, используем сохраненную строку
+		row = mw.selectedRow
+	}
+
+	if row <= 0 {
+		dialog.ShowInformation("No Selection", "Please select a manufacturer first", mw.window)
+		return
+	}
+
+	manufacturers, err := mw.controller.GetAllManufacturers()
+	if err != nil || row-1 >= len(manufacturers) {
+		dialog.ShowError(errors.New("invalid selection"), mw.window)
+		return
+	}
+
+	manufacturer := manufacturers[row-1]
+	mw.onDeleteWithConfirmation(manufacturer.ID)
 }
 
 func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew bool) {
@@ -333,30 +362,10 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 	)
 }
 
-func (mw *MainWindow) onDelete(row int) {
-	if row <= 0 {
-		return
-	}
-
-	manufacturers, err := mw.controller.GetAllManufacturers()
-	if err != nil || row-1 >= len(manufacturers) {
-		return
-	}
-
-	manufacturer := manufacturers[row-1]
-	mw.onDeleteWithConfirmation(manufacturer.ID)
-}
-
 func (mw *MainWindow) onDeleteWithConfirmation(id int) {
-	manufacturer, err := mw.controller.GetManufacturerByID(id)
-	if err != nil {
-		dialog.ShowError(err, mw.window)
-		return
-	}
-
 	dialog.ShowConfirm(
-		mw.locale.Translate("Delete Manufacturer"),
-		fmt.Sprintf(mw.locale.Translate("Are you sure you want to delete %s?"), manufacturer.Name),
+		mw.locale.Translate("Confirm Delete"),
+		mw.locale.Translate("Are you sure you want to delete this manufacturer?"),
 		func(confirm bool) {
 			if confirm {
 				if err := mw.controller.DeleteManufacturer(id); err != nil {
@@ -365,7 +374,7 @@ func (mw *MainWindow) onDeleteWithConfirmation(id int) {
 				}
 				mw.unsavedChanges = true
 				mw.refreshTable()
-				mw.showNotification(mw.locale.Translate("Manufacturer deleted successfully"))
+				mw.showNotification(mw.locale.Translate("Manufacturer deleted"))
 			}
 		},
 		mw.window,
@@ -443,19 +452,19 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 			if tci.Row == 0 {
 				switch tci.Col {
 				case 0:
-					label.SetText(mw.locale.Translate("Name"))
+					label.SetText(mw.locale.Translate("ID"))
 				case 1:
-					label.SetText(mw.locale.Translate("Country"))
+					label.SetText(mw.locale.Translate("Name"))
 				case 2:
-					label.SetText(mw.locale.Translate("Address"))
+					label.SetText(mw.locale.Translate("Country"))
 				case 3:
-					label.SetText(mw.locale.Translate("Phone"))
+					label.SetText(mw.locale.Translate("Address"))
 				case 4:
-					label.SetText(mw.locale.Translate("Email"))
+					label.SetText(mw.locale.Translate("Phone"))
 				case 5:
-					label.SetText(mw.locale.Translate("Product Type"))
+					label.SetText(mw.locale.Translate("Email"))
 				case 6:
-					label.SetText(mw.locale.Translate("Founded Year"))
+					label.SetText(mw.locale.Translate("Product Type"))
 				case 7:
 					label.SetText(mw.locale.Translate("Revenue"))
 				}
@@ -467,46 +476,44 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 				m := manufacturers[tci.Row-1]
 				switch tci.Col {
 				case 0:
-					label.SetText(m.Name)
+					label.SetText(fmt.Sprintf("%d", m.ID))
 				case 1:
-					label.SetText(m.Country)
+					label.SetText(m.Name)
 				case 2:
-					label.SetText(m.Address)
+					label.SetText(m.Country)
 				case 3:
-					label.SetText(m.Phone)
+					label.SetText(m.Address)
 				case 4:
-					label.SetText(m.Email)
+					label.SetText(m.Phone)
 				case 5:
-					label.SetText(m.ProductType)
+					label.SetText(m.Email)
 				case 6:
-					label.SetText(fmt.Sprintf("%d", m.FoundedYear))
+					label.SetText(m.ProductType)
 				case 7:
 					label.SetText(fmt.Sprintf("%.2f", m.Revenue))
 				}
-
 			}
-
 		},
 	)
 
 	// Настройка ширины столбцов
-	table.SetColumnWidth(0, 200) // Name
-	table.SetColumnWidth(1, 150) // Country
-	table.SetColumnWidth(2, 250) // Address
-	table.SetColumnWidth(3, 150) // Phone
-	table.SetColumnWidth(4, 200) // Email
-	table.SetColumnWidth(5, 200) // Product Type
-	table.SetColumnWidth(6, 120) // Founded Year
-	table.SetColumnWidth(7, 150) // Revenue
+	table.SetColumnWidth(0, 80)  // ID
+	table.SetColumnWidth(1, 200) // Name
+	table.SetColumnWidth(2, 150) // Country
+	table.SetColumnWidth(3, 250) // Address
+	table.SetColumnWidth(4, 150) // Phone
+	table.SetColumnWidth(5, 200) // Email
+	table.SetColumnWidth(6, 200) // Product Type
+	table.SetColumnWidth(7, 120) // Revenue
 
-	// Добавляем обработчик кликов для контекстного меню
+	// Обработчик выбора строки
 	table.OnSelected = func(id widget.TableCellID) {
 		if id.Row == 0 {
-			return // Заголовки
+			return // Игнорируем заголовки
 		}
 
-		// Показываем контекстное меню по правому клику
-		// (реализация требует дополнительной работы с обработкой событий мыши)
+		// Сохраняем выбранную строку
+		mw.selectedRow = id.Row
 	}
 
 	return table

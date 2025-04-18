@@ -61,8 +61,9 @@ func (c *ManufacturerController) UpdateManufacturer(m *model.Manufacturer) error
 	if err := c.service.Update(m); err != nil {
 		return err
 	}
-	for i, manufacturer := range c.manufacturers {
-		if manufacturer.ID == m.ID {
+	// Обновляем локальный кэш
+	for i, item := range c.manufacturers {
+		if item.ID == m.ID {
 			c.manufacturers[i] = *m
 			break
 		}
@@ -74,8 +75,9 @@ func (c *ManufacturerController) DeleteManufacturer(id int) error {
 	if err := c.service.Delete(id); err != nil {
 		return err
 	}
-	for i, manufacturer := range c.manufacturers {
-		if manufacturer.ID == id {
+	// Удаляем из локального кэша
+	for i, item := range c.manufacturers {
+		if item.ID == id {
 			c.manufacturers = append(c.manufacturers[:i], c.manufacturers[i+1:]...)
 			break
 		}
