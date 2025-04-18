@@ -12,10 +12,9 @@ import (
 
 // ManufacturerRepository реализует хранение данных о производителях
 type ManufacturerRepository struct {
-	filePath  string
-	data      []model.Manufacturer
-	mu        sync.RWMutex
-	currentID int
+	filePath string
+	data     []model.Manufacturer
+	mu       sync.RWMutex
 }
 
 // NewManufacturerRepository создает новый экземпляр репозитория
@@ -195,11 +194,14 @@ func (r *ManufacturerRepository) SortBy(column string, ascending bool) {
 	})
 }
 
+// Упрощаем Search
 func (r *ManufacturerRepository) Search(column, query string) []model.Manufacturer {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	query = strings.ToLower(query)
 	var results []model.Manufacturer
+
 	for _, m := range r.data {
 		var field string
 		switch column {
@@ -207,12 +209,15 @@ func (r *ManufacturerRepository) Search(column, query string) []model.Manufactur
 			field = m.Name
 		case "email":
 			field = m.Email
-		// ... другие поля
+		case "country":
+			field = m.Country
+		case "productType":
+			field = m.ProductType
 		default:
 			continue
 		}
 
-		if strings.Contains(strings.ToLower(field), strings.ToLower(query)) {
+		if strings.Contains(strings.ToLower(field), query) {
 			results = append(results, m)
 		}
 	}

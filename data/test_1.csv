@@ -1,0 +1,21 @@
+ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
+1,Tree,Moscow,Freedom st. 15,89999992354,rbhb05@mail.ru,Hay,0,2020.00
+2,Stone,SPb,Nevsky 120,89999991111,stone@mail.ru,Rocks,0,2019.00
+3,Water,Sochi,Beach ave. 5,89999992222,water@mail.ru,Liquids,0,2021.00
+4,Fire,Kazan,Flame st. 7,89999993333,fire@mail.ru,Coal,0,2018.00
+5,Wind,Ekaterinburg,Gusty rd. 22,89999994444,wind@mail.ru,Turbines,0,2022.00
+6,Metal,Chelyabinsk,Steel st. 33,89999995555,metal@mail.ru,Ingots,0,2017.00
+7,Wood,Arkhangelsk,Forest ln. 12,89999996666,wood@mail.ru,Planks,0,2016.00
+8,Sand,Astrakhan,Desert blvd. 8,89999997777,sand@mail.ru,Grains,0,2020.00
+9,Clay,Rostov,Pottery st. 17,89999998888,clay@mail.ru,Bricks,0,2019.00
+10,Glass,Vladimir,Transparent st. 3,89999999999,glass@mail.ru,Panels,0,2021.00
+11,Plastic,Krasnodar,Polymer st. 9,89999990000,plastic@mail.ru,Pipes,0,2018.00
+12,Rubber,Nizhny Novgorod,Bouncy st. 44,89999991122,rubber@mail.ru,Tires,0,2020.00
+13,Cement,Belgorod,Hard st. 51,89999992233,cement@mail.ru,Mix,0,2017.00
+14,Paint,Voronezh,Colorful st. 26,89999993344,paint@mail.ru,Dye,0,2022.00
+15,Wire,Kursk,Conductive st. 13,89999994455,wire@mail.ru,Cables,0,2021.00
+16,Nails,Tula,Sharp st. 68,89999995566,nails@mail.ru,Fasteners,0,2019.00
+17,Oil,Ufa,Greasy st. 42,89999996677,oil@mail.ru,Lubricants,0,2018.00
+18,Gas,Novosibirsk,Flammable st. 19,89999997788,gas@mail.ru,Fuel,0,2020.00
+19,Concrete,Yaroslavl,Solid st. 77,89999998899,concrete@mail.ru,Blocks,0,20210.00
+20,Bricks,Smolensk,Square st. 94,89999990011,bricks@mail.ru,Masonry,0,2019.00

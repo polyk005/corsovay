@@ -1,6 +1,7 @@
 package view
 
 import (
+	"bytes"
 	"cursovay/internal/controller"
 	"cursovay/internal/model"
 	"cursovay/pkg/localization"
@@ -18,15 +19,16 @@ import (
 	"fyne.io/fyne/container"
 	"fyne.io/fyne/dialog"
 	"fyne.io/fyne/storage"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/widget"
 )
 
 type MainWindow struct {
-	app            fyne.App
-	window         fyne.Window
-	table          *widget.Table
-	mainContainer  *fyne.Container
-	tableContainer *fyne.Container
+	app           fyne.App
+	window        fyne.Window
+	table         *widget.Table
+	mainContainer *fyne.Container
+	// tableContainer *fyne.Container
 	controller     *controller.ManufacturerController
 	locale         *localization.Locale
 	currentFile    string
@@ -128,144 +130,124 @@ func (mw *MainWindow) Show() {
 	mw.window.ShowAndRun()
 }
 
-func (mw *MainWindow) onNew() {
-	mw.checkUnsavedChanges(func() {
-		// Создаем новую пустую базу
-		mw.controller.NewDatabase()
-		mw.currentFile = ""
-		mw.unsavedChanges = false
-		mw.refreshTable()
-		mw.updateWindowTitle()
-		mw.showNotification("Создана новая база данных")
-	})
-}
+// func (mw *MainWindow) onNew() {
+// 	mw.checkUnsavedChanges(func() {
+// 		// Создаем новую пустую базу
+// 		mw.controller.NewDatabase()
+// 		mw.currentFile = ""
+// 		mw.unsavedChanges = false
+// 		mw.refreshTable()
+// 		mw.updateWindowTitle()
+// 		mw.showNotification("Создана новая база данных")
+// 	})
+// }
 
 func (mw *MainWindow) onOpen() {
-	mw.checkUnsavedChanges(func() {
-		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-			if err != nil {
-				dialog.ShowError(fmt.Errorf("ошибка при выборе файла: %v", err), mw.window)
-				return
-			}
-			if reader == nil {
-				return // Пользователь отменил
-			}
-			defer reader.Close()
-
-			filePath := uriToPath(reader.URI())
-
-			if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
-				dialog.ShowError(errors.New("выберите файл с расширением .csv"), mw.window)
-				return
-			}
-
-			if err := mw.controller.LoadFromFile(filePath); err != nil {
-				dialog.ShowError(fmt.Errorf("ошибка загрузки файла:\n%v", err), mw.window)
-				return
-			}
-
-			mw.currentFile = filePath
-			mw.unsavedChanges = false
-			mw.refreshTable()
-			mw.updateWindowTitle()
-			mw.showNotification("Файл успешно открыт")
-		}, mw.window)
-
-		fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
-
-		// Устанавливаем начальную директорию
-		if mw.currentFile != "" {
-			dirURI := storage.NewFileURI(filepath.Dir(mw.currentFile))
-			listableURI, _ := storage.ListerForURI(dirURI)
-			fileDialog.SetLocation(listableURI)
-		} else {
-			// Директория по умолчанию - домашняя
-			homeDir, _ := os.UserHomeDir()
-			homeURI := storage.NewFileURI(homeDir)
-			listableURI, _ := storage.ListerForURI(homeURI)
-			fileDialog.SetLocation(listableURI)
-		}
-
-		fileDialog.Show()
-	})
-}
-
-func (mw *MainWindow) onSave() {
-	if mw.currentFile == "" {
-		mw.onSaveAs()
-		return
-	}
-
-	// Проверяем, существует ли файл
-	if _, err := os.Stat(mw.currentFile); os.IsNotExist(err) {
-		dialog.ShowConfirm(
-			mw.locale.Translate("File not found"),
-			mw.locale.Translate("The file does not exist. Save as new file?"),
-			func(ok bool) {
-				if ok {
-					mw.onSaveAs()
-				}
-			},
-			mw.window,
-		)
-		return
-	}
-
-	if err := mw.controller.SaveToFile(mw.currentFile); err != nil {
-		dialog.ShowError(err, mw.window)
-		return
-	}
-
-	mw.unsavedChanges = false
-	mw.showNotification(mw.locale.Translate("File saved successfully"))
-}
-
-func (mw *MainWindow) onSaveAs() {
-	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+	fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil {
 			dialog.ShowError(err, mw.window)
 			return
 		}
-		if writer == nil {
+		if reader == nil {
 			return // Пользователь отменил
 		}
-		defer writer.Close()
+		defer reader.Close()
 
-		filePath := uriToPath(writer.URI())
+		filePath := uriToPath(reader.URI())
 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
-			filePath += ".csv"
+			dialog.ShowError(errors.New("выберите CSV файл"), mw.window)
+			return
 		}
 
-		if err := mw.controller.SaveToFile(filePath); err != nil {
+		// Сбрасываем текущее состояние
+		mw.controller.NewDatabase()
+
+		if err := mw.controller.LoadFromFile(filePath); err != nil {
 			dialog.ShowError(err, mw.window)
 			return
 		}
 
 		mw.currentFile = filePath
 		mw.unsavedChanges = false
-		mw.window.SetTitle(mw.locale.Translate("Manufacturers Database") + " - " + filepath.Base(filePath))
-		mw.showNotification(mw.locale.Translate("File saved successfully"))
+		mw.refreshTable()
+		mw.window.SetTitle("База производителей - " + filepath.Base(filePath))
 	}, mw.window)
 
-	// Устанавливаем фильтр для CSV файлов
-	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
+	fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
+	fileDialog.Show()
+}
 
-	// Устанавливаем начальное расположение
-	if mw.currentFile != "" {
-		fileURI := storage.NewFileURI(mw.currentFile)
-		listableURI, _ := storage.ListerForURI(fileURI)
-		saveDialog.SetLocation(listableURI)
-	} else {
-		// Установка расположения по умолчанию
-		homeDir, _ := os.UserHomeDir()
-		defaultPath := filepath.Join(homeDir, "manufacturers.csv")
-		defaultURI := storage.NewFileURI(defaultPath)
-		listableURI, _ := storage.ListerForURI(defaultURI)
-		saveDialog.SetLocation(listableURI)
+func (mw *MainWindow) onSave() {
+	if mw.currentFile == "" {
+		mw.onSaveAsWithPrompt()
+		return
 	}
 
-	saveDialog.Show()
+	loading := dialog.NewProgress("Сохранение", "Идет сохранение...", mw.window)
+	loading.Show()
+
+	go func() {
+		err := mw.controller.SaveToFile(mw.currentFile)
+
+		mw.runInUI(func() {
+			loading.Hide()
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("Ошибка сохранения: %v", err), mw.window)
+				return
+			}
+			mw.unsavedChanges = false
+			mw.showNotification("Файл успешно сохранен")
+			mw.refreshTable() // Обновляем таблицу после сохранения
+		})
+	}()
 }
+
+// func (mw *MainWindow) onSaveAs() {
+// 	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+// 		if err != nil {
+// 			dialog.ShowError(err, mw.window)
+// 			return
+// 		}
+// 		if writer == nil {
+// 			return // Пользователь отменил
+// 		}
+// 		defer writer.Close()
+
+// 		filePath := uriToPath(writer.URI())
+// 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+// 			filePath += ".csv"
+// 		}
+
+// 		if err := mw.controller.SaveToFile(filePath); err != nil {
+// 			dialog.ShowError(err, mw.window)
+// 			return
+// 		}
+
+// 		mw.currentFile = filePath
+// 		mw.unsavedChanges = false
+// 		mw.window.SetTitle(mw.locale.Translate("Manufacturers Database") + " - " + filepath.Base(filePath))
+// 		mw.showNotification(mw.locale.Translate("File saved successfully"))
+// 	}, mw.window)
+
+// 	// Устанавливаем фильтр для CSV файлов
+// 	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
+
+// 	// Устанавливаем начальное расположение
+// 	if mw.currentFile != "" {
+// 		fileURI := storage.NewFileURI(mw.currentFile)
+// 		listableURI, _ := storage.ListerForURI(fileURI)
+// 		saveDialog.SetLocation(listableURI)
+// 	} else {
+// 		// Установка расположения по умолчанию
+// 		homeDir, _ := os.UserHomeDir()
+// 		defaultPath := filepath.Join(homeDir, "manufacturers.csv")
+// 		defaultURI := storage.NewFileURI(defaultPath)
+// 		listableURI, _ := storage.ListerForURI(defaultURI)
+// 		saveDialog.SetLocation(listableURI)
+// 	}
+
+// 	saveDialog.Show()
+// }
 
 func (mw *MainWindow) onCreateNewFile() {
 	// Сначала создаем новую базу данных
@@ -281,7 +263,9 @@ func (mw *MainWindow) onCreateNewFile() {
 func (mw *MainWindow) onSaveAsWithPrompt() {
 	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("ошибка сохранения: %v", err), mw.window)
+			mw.runInUI(func() {
+				dialog.ShowError(fmt.Errorf("ошибка сохранения: %v", err), mw.window)
+			})
 			return
 		}
 		if writer == nil {
@@ -289,28 +273,32 @@ func (mw *MainWindow) onSaveAsWithPrompt() {
 		}
 		defer writer.Close()
 
-		// Получаем путь к файлу
 		filePath := uriToPath(writer.URI())
-		if filePath == "" {
-			dialog.ShowError(errors.New("не удалось получить путь к файлу"), mw.window)
-			return
-		}
-
-		// Добавляем расширение .csv если его нет
 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
 			filePath += ".csv"
 		}
 
-		// Сохраняем данные
-		if err := mw.controller.SaveToFile(filePath); err != nil {
-			dialog.ShowError(fmt.Errorf("не удалось сохранить файл: %v", err), mw.window)
-			return
-		}
+		mw.runInUI(func() {
+			loading := dialog.NewProgress("Сохранение", "Идет сохранение...", mw.window)
+			loading.Show()
 
-		mw.currentFile = filePath
-		mw.unsavedChanges = false
-		mw.updateWindowTitle()
-		mw.showNotification("Файл успешно сохранён")
+			go func() {
+				err := mw.controller.SaveToFile(filePath)
+
+				mw.runInUI(func() {
+					loading.Hide()
+					if err != nil {
+						dialog.ShowError(fmt.Errorf("не удалось сохранить файл: %v", err), mw.window)
+						return
+					}
+					mw.currentFile = filePath
+					mw.unsavedChanges = false
+					mw.updateWindowTitle()
+					mw.showNotification("Файл успешно сохранён")
+					mw.refreshTable()
+				})
+			}()
+		})
 	}, mw.window)
 
 	// Настраиваем фильтр для CSV файлов
@@ -335,48 +323,12 @@ func (mw *MainWindow) onSaveAsWithPrompt() {
 	saveDialog.Show()
 }
 
-func (mw *MainWindow) onExportPDF() {
-	// Здесь должна быть реализация экспорта в PDF
-	dialog.ShowInformation("Export PDF", "PDF export will be implemented here", mw.window)
-}
-
-func (mw *MainWindow) onPrint() {
-	if len(mw.controller.GetManufacturers()) == 0 {
-		dialog.ShowInformation(
-			mw.locale.Translate("No Data"),
-			mw.locale.Translate("No manufacturers to print. Please load data first."),
-			mw.window,
-		)
-		return
-	}
-
-	// Create a print dialog
-	printDialog := dialog.NewCustomConfirm(
-		mw.locale.Translate("Print"),
-		mw.locale.Translate("Print"),
-		mw.locale.Translate("Cancel"),
-		widget.NewLabel(mw.locale.Translate("Print current manufacturer list?")),
-		func(print bool) {
-			if print {
-				// Actual printing implementation would go here
-				// For now just show a message
-				dialog.ShowInformation(
-					mw.locale.Translate("Print"),
-					mw.locale.Translate("Printing functionality would be implemented here"),
-					mw.window,
-				)
-			}
-		},
-		mw.window,
-	)
-	printDialog.Show()
-}
-
 func (mw *MainWindow) onAdd() {
+	newID := mw.controller.GetNextID()
 	newManufacturer := model.Manufacturer{
-		// Инициализируем ID (можно добавить логику генерации ID)
-		ID: mw.controller.GetNextID(),
+		ID: newID,
 	}
+
 	mw.showEditDialog(&newManufacturer, true)
 }
 
@@ -550,27 +502,33 @@ func (mw *MainWindow) onDeleteWithConfirmation(id int) {
 		return
 	}
 
-	dialog.ShowConfirm(
-		mw.locale.Translate("Delete Manufacturer"),
-		fmt.Sprintf(mw.locale.Translate("Are you sure you want to delete %s?"), manufacturer.Name),
-		func(confirm bool) {
-			if confirm {
-				if err := mw.controller.DeleteManufacturer(id); err != nil {
-					dialog.ShowError(err, mw.window)
-					return
-				}
-				mw.unsavedChanges = true
-				mw.refreshTable()
-				mw.showNotification(mw.locale.Translate("Manufacturer deleted successfully"))
-			}
-		},
-		mw.window,
+	// Создаем кастомный диалог с прогрессом
+	progress := widget.NewProgressBarInfinite()
+	content := container.NewVBox(
+		widget.NewLabel(fmt.Sprintf("Удаляем %s (ID: %d)...", manufacturer.Name, id)),
+		progress,
 	)
-}
 
-func (mw *MainWindow) onShowChart() {
-	// Здесь должна быть реализация отображения графика
-	dialog.ShowInformation("Chart", "Chart visualization will be implemented here", mw.window)
+	dlg := dialog.NewCustom("Удаление", "Закрыть", content, mw.window)
+	dlg.Show()
+
+	go func() {
+		err := mw.controller.DeleteManufacturer(id)
+
+		// Закрываем диалог и обновляем UI через time.AfterFunc
+		time.AfterFunc(100*time.Millisecond, func() {
+			dlg.Hide()
+
+			if err != nil {
+				dialog.ShowError(err, mw.window)
+				return
+			}
+
+			mw.unsavedChanges = true
+			mw.refreshTable()
+			mw.showNotification(fmt.Sprintf("Удалён: %s", manufacturer.Name))
+		})
+	}()
 }
 
 func (mw *MainWindow) changeLanguage(lang string) {
@@ -590,28 +548,28 @@ func (mw *MainWindow) changeLanguage(lang string) {
 	mw.window.SetTitle(mw.locale.Translate("Manufacturers Database"))
 }
 
-func (mw *MainWindow) showAboutDialog() {
-	aboutText := fmt.Sprintf(`%s
-%s 1.0.0
+// func (mw *MainWindow) showAboutDialog() {
+// 	aboutText := fmt.Sprintf(`%s
+// %s 1.0.0
 
-%s: Поляков Кирилл Дмитриевич
-%s: ИЦТМС-2-2
-НИУ МГСУ`,
-		mw.locale.Translate("Construction Materials Manufacturers"),
-		mw.locale.Translate("Version"),
-		mw.locale.Translate("Author"),
-		mw.locale.Translate("Group"))
+// %s: Поляков Кирилл Дмитриевич
+// %s: ИЦТМС-2-2
+// НИУ МГСУ`,
+// 		mw.locale.Translate("Construction Materials Manufacturers"),
+// 		mw.locale.Translate("Version"),
+// 		mw.locale.Translate("Author"),
+// 		mw.locale.Translate("Group"))
 
-	dialog.ShowCustom(
-		mw.locale.Translate("About"),
-		mw.locale.Translate("Close"),
-		container.NewVBox(
-			widget.NewLabel(aboutText),
-			widget.NewLabel("© 2025"),
-		),
-		mw.window,
-	)
-}
+// 	dialog.ShowCustom(
+// 		mw.locale.Translate("About"),
+// 		mw.locale.Translate("Close"),
+// 		container.NewVBox(
+// 			widget.NewLabel(aboutText),
+// 			widget.NewLabel("© 2025"),
+// 		),
+// 		mw.window,
+// 	)
+// }
 
 func (mw *MainWindow) showNotification(message string) {
 	notification := fyne.NewNotification(
@@ -622,36 +580,26 @@ func (mw *MainWindow) showNotification(message string) {
 }
 
 func (mw *MainWindow) refreshTable() {
-	if mw.mainContainer == nil {
-		return
-	}
-
-	// Получаем текущий Scroll контейнер
-	oldScroll, ok := mw.mainContainer.Objects[0].(*container.Scroll)
-	if !ok {
-		return
-	}
-
-	// Сохраняем позицию прокрутки
-	scrollOffset := int(oldScroll.Offset.Y)
-
-	// Создаем новую таблицу
+	// Убрали неиспользуемую переменную manufacturers
 	newTable := mw.createManufacturersTable()
-	mw.table = newTable
 
-	// Создаем новый Scroll контейнер
-	newScroll := container.NewScroll(newTable)
-	newScroll.Offset.Y = scrollOffset
-
-	// Обновляем главный контейнер
-	mw.mainContainer.Objects[0] = newScroll
-	mw.mainContainer.Refresh()
+	// Используем time.AfterFunc для безопасного обновления UI
+	time.AfterFunc(50*time.Millisecond, func() {
+		if scroll, ok := mw.mainContainer.Objects[0].(*container.Scroll); ok {
+			scroll.Content = newTable
+			mw.table = newTable
+			scroll.Refresh()
+		}
+		mw.window.Content().Refresh()
+	})
 }
 
 func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	manufacturers, err := mw.controller.GetAllManufacturers()
 	if err != nil {
-		dialog.ShowError(err, mw.window)
+		mw.runOnMainThread(func() {
+			dialog.ShowError(err, mw.window)
+		})
 		return widget.NewTable(nil, nil, nil)
 	}
 
@@ -754,4 +702,120 @@ func (mw *MainWindow) updateWindowTitle() {
 		title += " - " + filepath.Base(mw.currentFile)
 	}
 	mw.window.SetTitle(title)
+}
+
+func (mw *MainWindow) runInUI(f func()) {
+	// Самый надежный способ выполнить код в UI-потоке в Fyne 1.x
+	time.AfterFunc(10*time.Millisecond, func() {
+		f()
+		mw.window.Content().Refresh()
+	})
+}
+
+func (mw *MainWindow) runOnMainThread(f func()) {
+	log.Println("Запланировано выполнение в главном потоке")
+	time.AfterFunc(10*time.Millisecond, func() {
+		log.Println("Выполнение в главном потоке")
+		f()
+		mw.window.Content().Refresh()
+	})
+}
+
+// func (mw *MainWindow) updateUI(f func()) {
+// 	// Используем AfterFunc как самый надежный способ в Fyne 1.x
+// 	time.AfterFunc(10*time.Millisecond, func() {
+// 		f()
+// 	})
+// }
+
+func (mw *MainWindow) onExportPDF() {
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, mw.window)
+			return
+		}
+		if writer == nil {
+			return
+		}
+		defer writer.Close()
+
+		filePath := uriToPath(writer.URI())
+		if !strings.HasSuffix(strings.ToLower(filePath), ".pdf") {
+			filePath += ".pdf"
+		}
+
+		if err := mw.controller.ExportToPDF(filePath); err != nil {
+			dialog.ShowError(fmt.Errorf("export failed: %v", err), mw.window)
+			return
+		}
+
+		mw.showNotification("PDF exported successfully")
+	}, mw.window)
+
+	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".pdf"}))
+	saveDialog.Show()
+}
+
+func (mw *MainWindow) onPrint() {
+	loading := dialog.NewProgress("Printing", "Preparing document...", mw.window)
+	loading.Show()
+
+	go func() {
+		err := mw.controller.Print()
+
+		mw.runInUI(func() {
+			loading.Hide()
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("printing failed: %v", err), mw.window)
+				return
+			}
+			mw.showNotification("Document sent to printer")
+		})
+	}()
+}
+
+func (mw *MainWindow) onShowChart() {
+	// Диалог выбора колонки для графика
+	columnSelect := widget.NewSelect([]string{"revenue", "foundedYear"}, nil)
+	columnSelect.SetSelected("revenue")
+
+	dialog.ShowCustomConfirm(
+		"Generate Chart",
+		"Generate",
+		"Cancel",
+		container.NewVBox(
+			widget.NewLabel("Select data column:"),
+			columnSelect,
+		),
+		func(confirm bool) {
+			if !confirm {
+				return
+			}
+
+			loading := dialog.NewProgress("Generating Chart", "Please wait...", mw.window)
+			loading.Show()
+
+			go func() {
+				imgData, err := mw.controller.GenerateChart(columnSelect.Selected)
+
+				mw.runInUI(func() {
+					loading.Hide()
+					if err != nil {
+						dialog.ShowError(err, mw.window)
+						return
+					}
+
+					// Показываем изображение в новом окне
+					img := canvas.NewImageFromReader(bytes.NewReader(imgData), "chart.png")
+					img.FillMode = canvas.ImageFillOriginal
+
+					chartWindow := mw.app.NewWindow("Manufacturers Chart")
+					chartWindow.SetContent(container.NewScroll(&widget.Icon{}))
+					chartWindow.Resize(fyne.NewSize(800, 600))
+					chartWindow.Show()
+				})
+			}()
+		},
+		mw.window,
+	)
 }
