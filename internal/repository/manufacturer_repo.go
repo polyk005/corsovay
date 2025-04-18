@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // ManufacturerRepository реализует хранение данных о производителях
@@ -44,22 +45,33 @@ func (r *ManufacturerRepository) Load() error {
 	r.data = make([]model.Manufacturer, 0, len(records))
 
 	for _, record := range records {
-		if len(record) < 8 {
-			continue // Пропускаем некорректные записи
+		if len(record) < 9 { // Проверяем, что есть все 9 полей
+			continue
 		}
 
-		id, _ := strconv.Atoi(record[0])
-		foundedYear, _ := strconv.Atoi(record[6])
-		revenue, _ := strconv.ParseFloat(record[7], 64)
+		id, err := strconv.Atoi(strings.TrimSpace(record[0]))
+		if err != nil {
+			continue
+		}
+
+		foundedYear, err := strconv.Atoi(strings.TrimSpace(record[7]))
+		if err != nil {
+			foundedYear = 0 // или можно вернуть ошибку
+		}
+
+		revenue, err := strconv.ParseFloat(strings.TrimSpace(record[8]), 64)
+		if err != nil {
+			revenue = 0
+		}
 
 		manufacturer := model.Manufacturer{
 			ID:          id,
-			Name:        record[1],
-			Country:     record[2],
-			Address:     record[3],
-			Phone:       record[4],
-			Email:       record[5],
-			ProductType: record[6],
+			Name:        strings.TrimSpace(record[1]),
+			Country:     strings.TrimSpace(record[2]),
+			Address:     strings.TrimSpace(record[3]),
+			Phone:       strings.TrimSpace(record[4]),
+			Email:       strings.TrimSpace(record[5]),
+			ProductType: strings.TrimSpace(record[6]),
 			FoundedYear: foundedYear,
 			Revenue:     revenue,
 		}

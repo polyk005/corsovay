@@ -295,8 +295,8 @@ func (mw *MainWindow) createManufacturersTableWithData(data []model.Manufacturer
 	table.SetColumnWidth(1, 100) // Страна
 	table.SetColumnWidth(2, 200) // Адрес
 	table.SetColumnWidth(3, 120) // Телефон
-	table.SetColumnWidth(4, 150) // Email
-	table.SetColumnWidth(5, 120) // Тип продукции
+	table.SetColumnWidth(4, 200) // Email
+	table.SetColumnWidth(5, 200) // Тип продукции
 	table.SetColumnWidth(6, 100) // Год основания
 	table.SetColumnWidth(7, 100) // Доход
 
