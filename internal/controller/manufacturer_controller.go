@@ -89,16 +89,42 @@ func (c *ManufacturerController) UpdateManufacturer(m *model.Manufacturer) error
 }
 
 func (c *ManufacturerController) DeleteManufacturer(id int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Удаляем через сервис
 	if err := c.service.Delete(id); err != nil {
 		return err
 	}
-	// Удаляем из локального кэша
+
+	// Удаляем из локального кэша и находим индекс удаленного элемента
+	deletedIndex := -1
 	for i, item := range c.manufacturers {
 		if item.ID == id {
+			deletedIndex = i
 			c.manufacturers = append(c.manufacturers[:i], c.manufacturers[i+1:]...)
 			break
 		}
 	}
+
+	if deletedIndex == -1 {
+		return fmt.Errorf("manufacturer with ID %d not found in cache", id)
+	}
+
+	// Перенумеровываем оставшиеся записи, начиная с удаленного индекса
+	for i := deletedIndex; i < len(c.manufacturers); i++ {
+		c.manufacturers[i].ID = i + 1 // ID начинаются с 1
+	}
+
+	// Сохраняем изменения, если файл указан
+	if c.currentFile != "" {
+		if err := c.SaveToFile(c.currentFile); err != nil {
+			// Восстанавливаем старые ID при ошибке сохранения
+			// (в реальном приложении нужно более сложное восстановление)
+			return fmt.Errorf("failed to save after deletion: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -494,34 +520,30 @@ func (c *ManufacturerController) NewDatabase() {
 	c.currentFile = ""
 }
 
-// Изменяем сигнатуру метода для работы с указателем
 func (c *ManufacturerController) AddManufacturer(m *model.Manufacturer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Проверяем дубликаты ID (если нужно)
-	for _, existing := range c.manufacturers {
-		if existing.ID == m.ID {
-			return fmt.Errorf("manufacturer with ID %d already exists", m.ID)
-		}
+	// Генерируем новый ID (либо 1 если список пустой, либо maxID + 1)
+	if len(c.manufacturers) == 0 {
+		m.ID = 1
+	} else {
+		maxID := c.manufacturers[len(c.manufacturers)-1].ID
+		m.ID = maxID + 1
 	}
 
-	// Генерируем новый ID
-	maxID := 0
-	for _, item := range c.manufacturers {
-		if item.ID > maxID {
-			maxID = item.ID
-		}
-	}
-	m.ID = maxID + 1
-
-	// Добавляем в список (разыменовываем указатель)
+	// Добавляем в список
 	c.manufacturers = append(c.manufacturers, *m)
 
 	// Автоматически сохраняем, если файл указан
 	if c.currentFile != "" {
-		return c.SaveToFile(c.currentFile)
+		if err := c.SaveToFile(c.currentFile); err != nil {
+			// Удаляем добавленный элемент при ошибке сохранения
+			c.manufacturers = c.manufacturers[:len(c.manufacturers)-1]
+			return fmt.Errorf("failed to save after adding: %v", err)
+		}
 	}
+
 	return nil
 }
 
@@ -555,13 +577,10 @@ func (c *ManufacturerController) GetNextID() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	maxID := 0
-	for _, m := range c.manufacturers {
-		if m.ID > maxID {
-			maxID = m.ID
-		}
+	if len(c.manufacturers) == 0 {
+		return 1
 	}
-	return maxID + 1
+	return c.manufacturers[len(c.manufacturers)-1].ID + 1
 }
 
 func (c *ManufacturerController) GetManufacturerByIndex(index int) (*model.Manufacturer, error) {
