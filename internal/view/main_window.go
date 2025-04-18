@@ -298,11 +298,9 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 
 			var err error
 			if isNew {
-				err = mw.controller.AddManufacturer(*manufacturer)
+				err = mw.controller.AddManufacturer(manufacturer)
 			} else {
-				// Создаем копию структуры для обновления
-				updatedManufacturer := *manufacturer
-				err = mw.controller.UpdateManufacturer(&updatedManufacturer)
+				err = mw.controller.UpdateManufacturer(manufacturer)
 			}
 
 			if err != nil {
@@ -311,7 +309,7 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 			}
 
 			mw.unsavedChanges = true
-			mw.refreshTable()
+			mw.refreshTable() // Обязательно обновляем таблицу
 			mw.showNotification(mw.locale.Translate("Manufacturer saved successfully"))
 		},
 	}
@@ -419,8 +417,9 @@ func (mw *MainWindow) showNotification(message string) {
 }
 
 func (mw *MainWindow) refreshTable() {
-	mw.table = mw.createManufacturersTable()
-	mw.window.Content().Refresh()
+	// Полная перерисовка содержимого окна
+	content := container.NewBorder(nil, nil, nil, nil, mw.createManufacturersTable())
+	mw.window.SetContent(content)
 }
 
 func (mw *MainWindow) createManufacturersTable() *widget.Table {
@@ -484,7 +483,9 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 				case 7:
 					label.SetText(fmt.Sprintf("%.2f", m.Revenue))
 				}
+
 			}
+
 		},
 	)
 

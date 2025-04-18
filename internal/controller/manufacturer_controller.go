@@ -26,12 +26,16 @@ func NewManufacturerController(repo *repository.ManufacturerRepository) *Manufac
 }
 
 func (c *ManufacturerController) GetAllManufacturers() ([]model.Manufacturer, error) {
-	if len(c.manufacturers) == 0 {
-		var err error
-		c.manufacturers, err = c.service.GetAll()
-		if err != nil {
-			return nil, err
-		}
+	// Если данные уже загружены, возвращаем их
+	if len(c.manufacturers) > 0 {
+		return c.manufacturers, nil
+	}
+
+	// Иначе загружаем из сервиса
+	var err error
+	c.manufacturers, err = c.service.GetAll()
+	if err != nil {
+		return nil, err
 	}
 	return c.manufacturers, nil
 }
@@ -240,7 +244,7 @@ func (c *ManufacturerController) NewDatabase() {
 	c.currentFile = ""
 }
 
-func (c *ManufacturerController) AddManufacturer(manufacturer model.Manufacturer) error {
+func (c *ManufacturerController) AddManufacturer(manufacturer *model.Manufacturer) error {
 	// Генерируем новый ID
 	maxID := 0
 	for _, m := range c.manufacturers {
@@ -250,7 +254,11 @@ func (c *ManufacturerController) AddManufacturer(manufacturer model.Manufacturer
 	}
 	manufacturer.ID = maxID + 1
 
-	c.manufacturers = append(c.manufacturers, manufacturer)
+	// Добавляем в сервис и в локальный кэш
+	if err := c.service.Create(manufacturer); err != nil {
+		return err
+	}
+	c.manufacturers = append(c.manufacturers, *manufacturer)
 	return nil
 }
 
