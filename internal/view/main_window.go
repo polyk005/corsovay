@@ -230,31 +230,75 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 }
 
 func (mw *MainWindow) createManufacturersTableWithData(data []model.Manufacturer) *widget.Table {
-	return widget.NewTable(
-		func() (int, int) { return len(data), 8 }, // 8 - количество столбцов
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+	table := widget.NewTable(
+		func() (int, int) {
+			return len(data) + 1, 8 // +1 для заголовков, 8 столбцов
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("Шаблонный текст для определения размера")
+		},
 		func(tci widget.TableCellID, co fyne.CanvasObject) {
-			if tci.Row < len(data) {
-				manufacturer := data[tci.Row]
+			label := co.(*widget.Label)
+			label.Wrapping = fyne.TextTruncate // Обрезаем длинный текст
+
+			// Заголовки столбцов
+			if tci.Row == 0 {
 				switch tci.Col {
 				case 0:
-					co.(*widget.Label).SetText(manufacturer.Name)
+					label.SetText(mw.locale.Translate("Name"))
 				case 1:
-					co.(*widget.Label).SetText(manufacturer.Country)
+					label.SetText(mw.locale.Translate("Country"))
 				case 2:
-					co.(*widget.Label).SetText(manufacturer.Address)
+					label.SetText(mw.locale.Translate("Address"))
 				case 3:
-					co.(*widget.Label).SetText(manufacturer.Phone)
+					label.SetText(mw.locale.Translate("Phone"))
 				case 4:
-					co.(*widget.Label).SetText(manufacturer.Email)
+					label.SetText(mw.locale.Translate("Email"))
 				case 5:
-					co.(*widget.Label).SetText(manufacturer.ProductType)
+					label.SetText(mw.locale.Translate("Product Type"))
 				case 6:
-					co.(*widget.Label).SetText(fmt.Sprintf("%d", manufacturer.FoundedYear))
+					label.SetText(mw.locale.Translate("Founded Year"))
 				case 7:
-					co.(*widget.Label).SetText(fmt.Sprintf("%.2f", manufacturer.Revenue))
+					label.SetText(mw.locale.Translate("Revenue"))
+				}
+				label.TextStyle.Bold = true
+				return
+			}
+
+			// Данные
+			if tci.Row-1 < len(data) {
+				manufacturer := data[tci.Row-1]
+				switch tci.Col {
+				case 0:
+					label.SetText(manufacturer.Name)
+				case 1:
+					label.SetText(manufacturer.Country)
+				case 2:
+					label.SetText(manufacturer.Address)
+				case 3:
+					label.SetText(manufacturer.Phone)
+				case 4:
+					label.SetText(manufacturer.Email)
+				case 5:
+					label.SetText(manufacturer.ProductType)
+				case 6:
+					label.SetText(fmt.Sprintf("%d", manufacturer.FoundedYear))
+				case 7:
+					label.SetText(fmt.Sprintf("%.2f", manufacturer.Revenue))
 				}
 			}
 		},
 	)
+
+	// Настраиваем размеры столбцов
+	table.SetColumnWidth(0, 150) // Название
+	table.SetColumnWidth(1, 100) // Страна
+	table.SetColumnWidth(2, 200) // Адрес
+	table.SetColumnWidth(3, 120) // Телефон
+	table.SetColumnWidth(4, 150) // Email
+	table.SetColumnWidth(5, 120) // Тип продукции
+	table.SetColumnWidth(6, 100) // Год основания
+	table.SetColumnWidth(7, 100) // Доход
+
+	return table
 }
