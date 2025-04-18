@@ -4,14 +4,18 @@ import (
 	"cursovay/internal/model"
 	"encoding/csv"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // ManufacturerRepository реализует хранение данных о производителях
 type ManufacturerRepository struct {
-	filePath string
-	data     []model.Manufacturer
+	filePath  string
+	data      []model.Manufacturer
+	mu        sync.RWMutex
+	currentID int
 }
 
 // NewManufacturerRepository создает новый экземпляр репозитория
@@ -162,4 +166,51 @@ func (r *ManufacturerRepository) Delete(id int) error {
 		}
 	}
 	return nil
+}
+
+func (r *ManufacturerRepository) SortBy(column string, ascending bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	sort.Slice(r.data, func(i, j int) bool {
+		switch column {
+		case "name":
+			if ascending {
+				return r.data[i].Name < r.data[j].Name
+			}
+			return r.data[i].Name > r.data[j].Name
+		case "revenue":
+			if ascending {
+				return r.data[i].Revenue < r.data[j].Revenue
+			}
+			return r.data[i].Revenue > r.data[j].Revenue
+		// ... другие поля
+		default:
+			return false
+		}
+	})
+}
+
+func (r *ManufacturerRepository) Search(column, query string) []model.Manufacturer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var results []model.Manufacturer
+	for _, m := range r.data {
+		var field string
+		switch column {
+		case "name":
+			field = m.Name
+		case "email":
+			field = m.Email
+		// ... другие поля
+		default:
+			continue
+		}
+
+		if strings.Contains(strings.ToLower(field), strings.ToLower(query)) {
+			results = append(results, m)
+		}
+	}
+	return results
 }
