@@ -55,34 +55,35 @@ func (c *ManufacturerController) CreateManufacturer(m *model.Manufacturer) error
 	}
 	c.manufacturers = append(c.manufacturers, *m)
 	return nil
+
 }
 
 func (c *ManufacturerController) UpdateManufacturer(m *model.Manufacturer) error {
-	if err := c.service.Update(m); err != nil {
-		return err
-	}
-	// Обновляем локальный кэш
 	for i, item := range c.manufacturers {
 		if item.ID == m.ID {
 			c.manufacturers[i] = *m
-			break
+			// Сохраняем в файл, если он указан
+			if c.currentFile != "" {
+				return c.SaveToFile(c.currentFile)
+			}
+			return nil
 		}
 	}
-	return nil
+	return errors.New("manufacturer not found")
 }
 
 func (c *ManufacturerController) DeleteManufacturer(id int) error {
-	if err := c.service.Delete(id); err != nil {
-		return err
-	}
-	// Удаляем из локального кэша
 	for i, item := range c.manufacturers {
 		if item.ID == id {
 			c.manufacturers = append(c.manufacturers[:i], c.manufacturers[i+1:]...)
-			break
+			// Сохраняем в файл, если он указан
+			if c.currentFile != "" {
+				return c.SaveToFile(c.currentFile)
+			}
+			return nil
 		}
 	}
-	return nil
+	return errors.New("manufacturer not found")
 }
 
 func (c *ManufacturerController) LoadFromFile(filePath string) error {
@@ -246,21 +247,14 @@ func (c *ManufacturerController) NewDatabase() {
 	c.currentFile = ""
 }
 
-func (c *ManufacturerController) AddManufacturer(manufacturer *model.Manufacturer) error {
-	// Генерируем новый ID
-	maxID := 0
-	for _, m := range c.manufacturers {
-		if m.ID > maxID {
-			maxID = m.ID
-		}
-	}
-	manufacturer.ID = maxID + 1
+func (c *ManufacturerController) AddManufacturer(m *model.Manufacturer) error {
+	// Добавляем в память
+	c.manufacturers = append(c.manufacturers, *m)
 
-	// Добавляем в сервис и в локальный кэш
-	if err := c.service.Create(manufacturer); err != nil {
-		return err
+	// Сохраняем в файл
+	if c.currentFile != "" {
+		return c.SaveToFile(c.currentFile)
 	}
-	c.manufacturers = append(c.manufacturers, *manufacturer)
 	return nil
 }
 
@@ -271,4 +265,28 @@ func (c *ManufacturerController) GetCurrentFile() string {
 func (c *ManufacturerController) HasUnsavedChanges() bool {
 	// Здесь можно добавить логику для определения несохраненных изменений
 	return false
+}
+
+func (c *ManufacturerController) GetManufacturerByRow(row int) (*model.Manufacturer, error) {
+	if row < 0 || row >= len(c.manufacturers) {
+		return nil, errors.New("invalid row index")
+	}
+	return &c.manufacturers[row], nil
+}
+
+func (c *ManufacturerController) GetNextID() int {
+	maxID := 0
+	for _, m := range c.manufacturers {
+		if m.ID > maxID {
+			maxID = m.ID
+		}
+	}
+	return maxID + 1
+}
+
+func (c *ManufacturerController) GetManufacturerByIndex(index int) (*model.Manufacturer, error) {
+	if index < 0 || index >= len(c.manufacturers) {
+		return nil, errors.New("invalid index")
+	}
+	return &c.manufacturers[index], nil
 }

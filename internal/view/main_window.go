@@ -212,49 +212,56 @@ func (mw *MainWindow) onPrint() {
 }
 
 func (mw *MainWindow) onAdd() {
-	newManufacturer := model.Manufacturer{}
+	newManufacturer := model.Manufacturer{
+		// Инициализируем ID (можно добавить логику генерации ID)
+		ID: mw.controller.GetNextID(),
+	}
 	mw.showEditDialog(&newManufacturer, true)
 }
 
 func (mw *MainWindow) onEdit(row int) {
 	if row == -1 {
-		// Если вызвано из меню, используем сохраненную строку
 		row = mw.selectedRow
 	}
 
 	if row <= 0 {
-		dialog.ShowInformation("No Selection", "Please select a manufacturer first", mw.window)
+		dialog.ShowInformation(
+			mw.locale.Translate("No Selection"),
+			mw.locale.Translate("Please select a manufacturer first"),
+			mw.window,
+		)
 		return
 	}
 
-	manufacturers, err := mw.controller.GetAllManufacturers()
-	if err != nil || row-1 >= len(manufacturers) {
-		dialog.ShowError(errors.New("invalid selection"), mw.window)
+	manufacturer, err := mw.controller.GetManufacturerByRow(row - 1)
+	if err != nil {
+		dialog.ShowError(err, mw.window)
 		return
 	}
 
-	manufacturer := manufacturers[row-1]
-	mw.showEditDialog(&manufacturer, false)
+	mw.showEditDialog(manufacturer, false)
 }
 
 func (mw *MainWindow) onDelete(row int) {
 	if row == -1 {
-		// Если вызвано из меню, используем сохраненную строку
 		row = mw.selectedRow
 	}
 
 	if row <= 0 {
-		dialog.ShowInformation("No Selection", "Please select a manufacturer first", mw.window)
+		dialog.ShowInformation(
+			mw.locale.Translate("No Selection"),
+			mw.locale.Translate("Please select a manufacturer first"),
+			mw.window,
+		)
 		return
 	}
 
-	manufacturers, err := mw.controller.GetAllManufacturers()
-	if err != nil || row-1 >= len(manufacturers) {
-		dialog.ShowError(errors.New("invalid selection"), mw.window)
+	manufacturer, err := mw.controller.GetManufacturerByIndex(row - 1)
+	if err != nil {
+		dialog.ShowError(err, mw.window)
 		return
 	}
 
-	manufacturer := manufacturers[row-1]
 	mw.onDeleteWithConfirmation(manufacturer.ID)
 }
 
@@ -338,8 +345,12 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 			}
 
 			mw.unsavedChanges = true
-			mw.refreshTable() // Обязательно обновляем таблицу
-			mw.showNotification(mw.locale.Translate("Manufacturer saved successfully"))
+			mw.refreshTable()
+			dialog.ShowInformation(
+				mw.locale.Translate("Success"),
+				mw.locale.Translate("Manufacturer saved successfully"),
+				mw.window,
+			)
 		},
 	}
 
@@ -363,9 +374,15 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 }
 
 func (mw *MainWindow) onDeleteWithConfirmation(id int) {
+	manufacturer, err := mw.controller.GetManufacturerByID(id)
+	if err != nil {
+		dialog.ShowError(err, mw.window)
+		return
+	}
+
 	dialog.ShowConfirm(
-		mw.locale.Translate("Confirm Delete"),
-		mw.locale.Translate("Are you sure you want to delete this manufacturer?"),
+		mw.locale.Translate("Delete Manufacturer"),
+		fmt.Sprintf(mw.locale.Translate("Are you sure you want to delete %s?"), manufacturer.Name),
 		func(confirm bool) {
 			if confirm {
 				if err := mw.controller.DeleteManufacturer(id); err != nil {
@@ -374,7 +391,7 @@ func (mw *MainWindow) onDeleteWithConfirmation(id int) {
 				}
 				mw.unsavedChanges = true
 				mw.refreshTable()
-				mw.showNotification(mw.locale.Translate("Manufacturer deleted"))
+				mw.showNotification(mw.locale.Translate("Manufacturer deleted successfully"))
 			}
 		},
 		mw.window,
@@ -535,6 +552,12 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	table.SetColumnWidth(5, 200) // Email - растягивается
 	table.SetColumnWidth(6, 200) // Product Type - растягивается
 	table.SetColumnWidth(7, 120) // Revenue - фиксированная
+
+	table.OnSelected = func(id widget.TableCellID) {
+		if id.Row > 0 { // Игнорируем заголовки
+			mw.selectedRow = id.Row
+		}
+	}
 
 	return table
 }
