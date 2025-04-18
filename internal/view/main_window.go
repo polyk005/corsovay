@@ -366,24 +366,22 @@ func (mw *MainWindow) onEdit(row int) {
 
 func (mw *MainWindow) onDelete(row int) {
 	if row == -1 {
+		// Если вызвано из меню, используем сохраненную строку
 		row = mw.selectedRow
 	}
 
 	if row <= 0 {
-		dialog.ShowInformation(
-			mw.locale.Translate("No Selection"),
-			mw.locale.Translate("Please select a manufacturer first"),
-			mw.window,
-		)
+		dialog.ShowInformation("No Selection", "Please select a manufacturer first", mw.window)
 		return
 	}
 
-	manufacturer, err := mw.controller.GetManufacturerByIndex(row - 1)
-	if err != nil {
-		dialog.ShowError(err, mw.window)
+	manufacturers, err := mw.controller.GetAllManufacturers()
+	if err != nil || row-1 >= len(manufacturers) {
+		dialog.ShowError(errors.New("invalid selection"), mw.window)
 		return
 	}
 
+	manufacturer := manufacturers[row-1]
 	mw.onDeleteWithConfirmation(manufacturer.ID)
 }
 
@@ -502,33 +500,61 @@ func (mw *MainWindow) onDeleteWithConfirmation(id int) {
 		return
 	}
 
-	// Создаем кастомный диалог с прогрессом
-	progress := widget.NewProgressBarInfinite()
-	content := container.NewVBox(
-		widget.NewLabel(fmt.Sprintf("Удаляем %s (ID: %d)...", manufacturer.Name, id)),
-		progress,
-	)
+	// Показываем диалог подтверждения с дополнительной информацией
+	confirmText := fmt.Sprintf("%s\n%s: %s\nID: %d",
+		mw.locale.Translate("Are you sure you want to delete this manufacturer?"),
+		mw.locale.Translate("Name"),
+		manufacturer.Name,
+		manufacturer.ID)
 
-	dlg := dialog.NewCustom("Удаление", "Закрыть", content, mw.window)
-	dlg.Show()
-
-	go func() {
-		err := mw.controller.DeleteManufacturer(id)
-
-		// Закрываем диалог и обновляем UI через time.AfterFunc
-		time.AfterFunc(100*time.Millisecond, func() {
-			dlg.Hide()
-
-			if err != nil {
-				dialog.ShowError(err, mw.window)
+	dialog.ShowConfirm(
+		mw.locale.Translate("Confirm Deletion"),
+		confirmText,
+		func(confirmed bool) {
+			if !confirmed {
 				return
 			}
 
-			mw.unsavedChanges = true
-			mw.refreshTable()
-			mw.showNotification(fmt.Sprintf("Удалён: %s", manufacturer.Name))
-		})
-	}()
+			// Показываем индикатор прогресса
+			progress := widget.NewProgressBarInfinite()
+			content := container.NewVBox(
+				widget.NewLabel(mw.locale.Translate("Deleting manufacturer...")),
+				progress,
+			)
+			dlg := dialog.NewCustom(
+				mw.locale.Translate("Deleting"),
+				mw.locale.Translate("Cancel"),
+				content,
+				mw.window)
+			dlg.Show()
+
+			go func() {
+				// Выполняем удаление
+				err := mw.controller.DeleteManufacturer(id)
+
+				mw.runInUI(func() {
+					dlg.Hide()
+
+					if err != nil {
+						dialog.ShowError(fmt.Errorf("%s: %v",
+							mw.locale.Translate("Deletion failed"), err), mw.window)
+						return
+					}
+
+					// Обновляем интерфейс
+					mw.unsavedChanges = false
+					mw.refreshTable()
+
+					// Показываем уведомление
+					dialog.ShowInformation(
+						mw.locale.Translate("Success"),
+						mw.locale.Translate("Manufacturer deleted successfully"),
+						mw.window)
+				})
+			}()
+		},
+		mw.window,
+	)
 }
 
 func (mw *MainWindow) changeLanguage(lang string) {

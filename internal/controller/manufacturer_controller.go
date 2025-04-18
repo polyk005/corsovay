@@ -89,28 +89,107 @@ func (c *ManufacturerController) UpdateManufacturer(m *model.Manufacturer) error
 }
 
 func (c *ManufacturerController) DeleteManufacturer(id int) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Ищем и удаляем производителя
-	for i, m := range c.manufacturers {
-		if m.ID == id {
-			// Удаляем элемент
+	if err := c.service.Delete(id); err != nil {
+		return err
+	}
+	// Удаляем из локального кэша
+	for i, item := range c.manufacturers {
+		if item.ID == id {
 			c.manufacturers = append(c.manufacturers[:i], c.manufacturers[i+1:]...)
-
-			// Сохраняем в файл, если он указан
-			if c.currentFile != "" {
-				if err := c.SaveToFile(c.currentFile); err != nil {
-					// Восстанавливаем при ошибке
-					c.manufacturers = append(c.manufacturers[:i],
-						append([]model.Manufacturer{m}, c.manufacturers[i:]...)...)
-					return err
-				}
-			}
-			return nil
+			break
 		}
 	}
-	return fmt.Errorf("производитель с ID %d не найден", id)
+	return nil
+}
+
+func (c *ManufacturerController) forceSaveToFile(filePath string) error {
+	// Создаём временный файл
+	tempFile := filePath + ".tmp"
+	file, err := os.Create(tempFile)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+
+	// Записываем заголовки
+	headers := []string{"ID", "Name", "Country", "Address", "Phone", "Email", "ProductType", "FoundedYear", "Revenue"}
+	if err := writer.Write(headers); err != nil {
+		return fmt.Errorf("failed to write headers: %v", err)
+	}
+
+	// Записываем данные
+	for _, m := range c.manufacturers {
+		record := []string{
+			strconv.Itoa(m.ID),
+			m.Name,
+			m.Country,
+			m.Address,
+			m.Phone,
+			m.Email,
+			m.ProductType,
+			strconv.Itoa(m.FoundedYear),
+			strconv.FormatFloat(m.Revenue, 'f', 2, 64),
+		}
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("failed to write record: %v", err)
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("csv writer error: %v", err)
+	}
+
+	// Закрываем файл перед переименованием
+	file.Close()
+
+	// Заменяем оригинальный файл временным
+	if err := os.Rename(tempFile, filePath); err != nil {
+		return fmt.Errorf("failed to replace original file: %v", err)
+	}
+
+	return nil
+}
+
+func (c *ManufacturerController) loadFromFile(filePath string) []model.Manufacturer {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil
+	}
+
+	var manufacturers []model.Manufacturer
+	for i, record := range records {
+		if i == 0 { // Пропускаем заголовок
+			continue
+		}
+
+		id, _ := strconv.Atoi(record[0])
+		year, _ := strconv.Atoi(record[6])
+		revenue, _ := strconv.ParseFloat(record[7], 64)
+
+		manufacturers = append(manufacturers, model.Manufacturer{
+			ID:          id,
+			Name:        record[1],
+			Country:     record[2],
+			Address:     record[3],
+			Phone:       record[4],
+			Email:       record[5],
+			ProductType: record[6],
+			FoundedYear: year,
+			Revenue:     revenue,
+		})
+	}
+
+	return manufacturers
 }
 
 func (c *ManufacturerController) FileExists(filePath string) bool {
@@ -199,9 +278,14 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Проверяем, есть ли что сохранять
+	if len(c.manufacturers) == 0 {
+		return errors.New("no manufacturers to save")
+	}
+
 	file, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("не удалось создать файл: %v", err)
+		return fmt.Errorf("failed to create file: %v", err)
 	}
 	defer file.Close()
 
@@ -211,7 +295,7 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 	// Записываем заголовки
 	headers := []string{"ID", "Name", "Country", "Address", "Phone", "Email", "ProductType", "FoundedYear", "Revenue"}
 	if err := writer.Write(headers); err != nil {
-		return fmt.Errorf("ошибка записи заголовков: %v", err)
+		return fmt.Errorf("failed to write headers: %v", err)
 	}
 
 	// Записываем данные
@@ -228,11 +312,15 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 			strconv.FormatFloat(m.Revenue, 'f', 2, 64),
 		}
 		if err := writer.Write(record); err != nil {
-			return fmt.Errorf("ошибка записи данных: %v", err)
+			return fmt.Errorf("failed to write record: %v", err)
 		}
 	}
 
-	c.currentFile = filePath
+	// Проверяем ошибки записи
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("csv write error: %v", err)
+	}
+
 	return nil
 }
 
@@ -436,8 +524,14 @@ func (c *ManufacturerController) GetCurrentFile() string {
 }
 
 func (c *ManufacturerController) HasUnsavedChanges() bool {
-	// Здесь можно добавить логику для определения несохраненных изменений
-	return false
+	if c.currentFile == "" {
+		// Если файл не загружен, считаем что есть несохраненные изменения
+		return len(c.manufacturers) > 0
+	}
+
+	// Для реальной проверки можно сравнить текущие данные с содержимым файла
+	// Здесь упрощенная версия - всегда считаем что есть изменения после редактирования
+	return true
 }
 
 func (c *ManufacturerController) GetManufacturerByRow(row int) (*model.Manufacturer, error) {
