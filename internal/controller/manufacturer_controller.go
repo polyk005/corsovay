@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -476,9 +477,13 @@ func (c *ManufacturerController) GenerateChart(column string) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func (c *ManufacturerController) SortBy(column string, ascending bool) {
+func (c *ManufacturerController) Sort(column string, ascending bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if len(c.manufacturers) == 0 {
+		return nil
+	}
 
 	sort.Slice(c.manufacturers, func(i, j int) bool {
 		switch column {
@@ -489,28 +494,21 @@ func (c *ManufacturerController) SortBy(column string, ascending bool) {
 			return c.manufacturers[i].ID > c.manufacturers[j].ID
 		case "name":
 			if ascending {
-				return c.manufacturers[i].Name < c.manufacturers[j].Name
+				return strings.ToLower(c.manufacturers[i].Name) < strings.ToLower(c.manufacturers[j].Name)
 			}
-			return c.manufacturers[i].Name > c.manufacturers[j].Name
-		case "country":
-			if ascending {
-				return c.manufacturers[i].Country < c.manufacturers[j].Country
-			}
-			return c.manufacturers[i].Country > c.manufacturers[j].Country
-		case "foundedYear":
-			if ascending {
-				return c.manufacturers[i].FoundedYear < c.manufacturers[j].FoundedYear
-			}
-			return c.manufacturers[i].FoundedYear > c.manufacturers[j].FoundedYear
+			return strings.ToLower(c.manufacturers[i].Name) > strings.ToLower(c.manufacturers[j].Name)
 		case "revenue":
 			if ascending {
 				return c.manufacturers[i].Revenue < c.manufacturers[j].Revenue
 			}
 			return c.manufacturers[i].Revenue > c.manufacturers[j].Revenue
+		// Добавьте другие поля по аналогии
 		default:
 			return false
 		}
 	})
+
+	return nil
 }
 
 func (c *ManufacturerController) NewDatabase() {
@@ -592,5 +590,41 @@ func (c *ManufacturerController) GetManufacturerByIndex(index int) (*model.Manuf
 
 // In controller/manufacturer_controller.go
 func (c *ManufacturerController) GetManufacturers() []model.Manufacturer {
-	return c.manufacturers
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Создаем копию, чтобы избежать изменений извне
+	manufacturers := make([]model.Manufacturer, len(c.manufacturers))
+	copy(manufacturers, c.manufacturers)
+	return manufacturers
+}
+
+func (c *ManufacturerController) Search(query string) ([]model.Manufacturer, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	query = strings.ToLower(query)
+	var results []model.Manufacturer
+
+	for _, m := range c.manufacturers {
+		if strings.Contains(strings.ToLower(m.Name), query) ||
+			strings.Contains(strings.ToLower(m.Country), query) ||
+			strings.Contains(strings.ToLower(m.Address), query) ||
+			strings.Contains(m.Phone, query) ||
+			strings.Contains(strings.ToLower(m.Email), query) ||
+			strings.Contains(strings.ToLower(m.ProductType), query) ||
+			strings.Contains(fmt.Sprintf("%d", m.FoundedYear), query) ||
+			strings.Contains(fmt.Sprintf("%.2f", m.Revenue), query) {
+			results = append(results, m)
+		}
+	}
+
+	return results, nil
+}
+
+// SetManufacturers устанавливает список производителей
+func (c *ManufacturerController) SetManufacturers(manufacturers []model.Manufacturer) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.manufacturers = manufacturers
 }

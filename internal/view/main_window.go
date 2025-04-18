@@ -24,9 +24,14 @@ import (
 )
 
 type MainWindow struct {
-	app           fyne.App
-	window        fyne.Window
-	table         *widget.Table
+	app         fyne.App
+	window      fyne.Window
+	table       *widget.Table
+	searchEntry *widget.Entry
+	currentSort struct {
+		column    string
+		ascending bool
+	}
 	mainContainer *fyne.Container
 	// tableContainer *fyne.Container
 	controller     *controller.ManufacturerController
@@ -119,6 +124,16 @@ func (mw *MainWindow) Show() {
 	// Initialize with empty table
 	mw.table = mw.createManufacturersTable()
 	scroll := container.NewScroll(mw.table)
+
+	searchBox := container.NewVBox(
+		mw.setupSearch(),
+		widget.NewSeparator(),
+	)
+
+	mw.mainContainer = container.NewBorder(
+		searchBox, nil, nil, nil,
+		container.NewScroll(mw.table),
+	)
 
 	mw.mainContainer = container.NewBorder(
 		nil, nil, nil, nil,
@@ -617,6 +632,7 @@ func (mw *MainWindow) refreshTable() {
 }
 
 func (mw *MainWindow) createManufacturersTable() *widget.Table {
+	// Получаем данные с учетом текущей сортировки
 	manufacturers, err := mw.controller.GetAllManufacturers()
 	if err != nil {
 		mw.runOnMainThread(func() {
@@ -636,29 +652,62 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 			label := co.(*widget.Label)
 			label.Wrapping = fyne.TextTruncate
 
-			if tci.Row == 0 {
+			if tci.Row == 0 { // Отрисовка заголовков
 				switch tci.Col {
 				case 0:
-					label.SetText(mw.locale.Translate("ID"))
+					text := mw.locale.Translate("ID")
+					if mw.currentSort.column == "id" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				case 1:
-					label.SetText(mw.locale.Translate("Name"))
+					text := mw.locale.Translate("Name")
+					if mw.currentSort.column == "name" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				case 2:
-					label.SetText(mw.locale.Translate("Country"))
+					text := mw.locale.Translate("Country")
+					if mw.currentSort.column == "country" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				case 3:
-					label.SetText(mw.locale.Translate("Address"))
+					text := mw.locale.Translate("Address")
+					if mw.currentSort.column == "address" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				case 4:
-					label.SetText(mw.locale.Translate("Phone"))
+					text := mw.locale.Translate("Phone")
+					if mw.currentSort.column == "phone" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				case 5:
-					label.SetText(mw.locale.Translate("Email"))
+					text := mw.locale.Translate("Email")
+					if mw.currentSort.column == "email" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				case 6:
-					label.SetText(mw.locale.Translate("Product Type"))
+					text := mw.locale.Translate("Product Type")
+					if mw.currentSort.column == "productType" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				case 7:
-					label.SetText(mw.locale.Translate("Revenue"))
+					text := mw.locale.Translate("Revenue")
+					if mw.currentSort.column == "revenue" {
+						text += mw.getSortIcon()
+					}
+					label.SetText(text)
 				}
 				label.TextStyle.Bold = true
 				return
 			}
 
+			// Отрисовка данных
 			if tci.Row-1 < len(manufacturers) {
 				m := manufacturers[tci.Row-1]
 				switch tci.Col {
@@ -684,22 +733,72 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	)
 
 	// Настройка ширины столбцов
-	table.SetColumnWidth(0, 80)  // ID - фиксированная
-	table.SetColumnWidth(1, 200) // Name - растягивается
-	table.SetColumnWidth(2, 150) // Country - фиксированная
-	table.SetColumnWidth(3, 250) // Address - растягивается
-	table.SetColumnWidth(4, 150) // Phone - фиксированная
-	table.SetColumnWidth(5, 200) // Email - растягивается
-	table.SetColumnWidth(6, 200) // Product Type - растягивается
-	table.SetColumnWidth(7, 120) // Revenue - фиксированная
+	table.SetColumnWidth(0, 80)  // ID
+	table.SetColumnWidth(1, 200) // Name
+	table.SetColumnWidth(2, 150) // Country
+	table.SetColumnWidth(3, 250) // Address
+	table.SetColumnWidth(4, 150) // Phone
+	table.SetColumnWidth(5, 200) // Email
+	table.SetColumnWidth(6, 200) // Product Type
+	table.SetColumnWidth(7, 120) // Revenue
 
+	// Обработчик кликов по заголовкам для сортировки
 	table.OnSelected = func(id widget.TableCellID) {
-		if id.Row > 0 { // Игнорируем заголовки
+		if id.Row == 0 { // Клик по заголовку
+			column := ""
+			switch id.Col {
+			case 0:
+				column = "id"
+			case 1:
+				column = "name"
+			case 2:
+				column = "country"
+			case 3:
+				column = "address"
+			case 4:
+				column = "phone"
+			case 5:
+				column = "email"
+			case 6:
+				column = "productType"
+			case 7:
+				column = "revenue"
+			}
+
+			if column != "" {
+				// Если кликнули по той же колонке - меняем направление сортировки
+				if mw.currentSort.column == column {
+					mw.currentSort.ascending = !mw.currentSort.ascending
+				} else {
+					// Иначе сортируем по новой колонке по возрастанию
+					mw.currentSort.column = column
+					mw.currentSort.ascending = true
+				}
+
+				// Применяем сортировку
+				if err := mw.controller.Sort(column, mw.currentSort.ascending); err != nil {
+					dialog.ShowError(err, mw.window)
+					return
+				}
+
+				// Обновляем таблицу
+				mw.refreshTable()
+			}
+		} else {
+			// Клик по данным - запоминаем выбранную строку
 			mw.selectedRow = id.Row
 		}
 	}
 
 	return table
+}
+
+// Вспомогательная функция для отображения иконки сортировки
+func (mw *MainWindow) getSortIcon() string {
+	if mw.currentSort.ascending {
+		return " ↑"
+	}
+	return " ↓"
 }
 
 func uriToPath(uri fyne.URI) string {
@@ -840,4 +939,29 @@ func (mw *MainWindow) onShowChart() {
 		},
 		mw.window,
 	)
+}
+
+func (mw *MainWindow) setupSearch() *widget.Entry {
+	mw.searchEntry = widget.NewEntry()
+	mw.searchEntry.SetPlaceHolder("Поиск...")
+	mw.searchEntry.OnChanged = func(query string) {
+		if query == "" {
+			mw.refreshTable()
+			return
+		}
+
+		results, err := mw.controller.Search(query)
+		if err != nil {
+			dialog.ShowError(err, mw.window)
+			return
+		}
+
+		// Получаем текущие данные через метод
+		oldData := mw.controller.GetManufacturers()
+		defer mw.controller.SetManufacturers(oldData) // Восстановим после отрисовки
+
+		mw.controller.SetManufacturers(results)
+		mw.refreshTable()
+	}
+	return mw.searchEntry
 }

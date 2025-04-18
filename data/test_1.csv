@@ -1,5 +1,5 @@
 ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
-1,Water,Sochi,Beach ave. 5,89999992222,water@mail.ru,Liquids,0,0.00
+1,Water,Sochi,Beach ave. 5,89999992222,water@mail.ru,Liquids,0,1.00
 2,Fire,Kazan,Flame st. 7,89999993333,fire@mail.ru,Coal,0,0.00
 3,Wind,Ekaterinburg,Gusty rd. 22,89999994444,wind@mail.ru,Turbines,0,0.00
 4,Metal,Chelyabinsk,Steel st. 33,89999995555,metal@mail.ru,Ingots,0,0.00
@@ -16,5 +16,5 @@ ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
 15,Oil,Ufa,Greasy st. 42,89999996677,oil@mail.ru,Lubricants,0,0.00
 16,Gas,Novosibirsk,Flammable st. 19,89999997788,gas@mail.ru,Fuel,0,0.00
 17,Concrete,Yaroslavl,Solid st. 77,89999998899,concrete@mail.ru,Blocks,0,0.00
-18,Bricks,Smolensk,Square st. 94,89999990011,bricks@mail.ru,Masonry,0,0.00
-19,vnb,bhb,bjhb,8797676,vgvcv@mail.ru,fnjanjf,0,2000.00
+18,Bricks,Smolensk,Square st. 94,89999990011,bricks@mail.ru,Masonry,0,9990.00
+19,vnb,bhb,bjhb,8797676,vgvcv@mail.ru,fnjanjf,0,0.00
