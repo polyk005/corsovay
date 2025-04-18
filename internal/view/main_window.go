@@ -23,6 +23,7 @@ type MainWindow struct {
 	app            fyne.App
 	window         fyne.Window
 	table          *widget.Table
+	mainContainer  *fyne.Container
 	tableContainer *fyne.Container
 	controller     *controller.ManufacturerController
 	locale         *localization.Locale
@@ -105,18 +106,17 @@ func (mw *MainWindow) checkUnsavedChanges(callback func()) {
 
 func (mw *MainWindow) Show() {
 	mw.window.SetMainMenu(mw.setupMenu())
+
 	mw.table = mw.createManufacturersTable()
+	scroll := container.NewScroll(mw.table)
 
-	mw.window.SetContent(container.NewBorder(nil, nil, nil, nil, mw.table))
+	mw.mainContainer = container.NewBorder(
+		nil, nil, nil, nil,
+		scroll,
+	)
+
+	mw.window.SetContent(mw.mainContainer)
 	mw.window.Resize(fyne.NewSize(1000, 600))
-
-	// Обработка закрытия окна
-	mw.window.SetCloseIntercept(func() {
-		mw.checkUnsavedChanges(func() {
-			mw.window.Close()
-		})
-	})
-
 	mw.window.ShowAndRun()
 }
 
@@ -387,11 +387,20 @@ func (mw *MainWindow) onShowChart() {
 }
 
 func (mw *MainWindow) changeLanguage(lang string) {
-	// Здесь должна быть реализация смены языка
-	dialog.ShowInformation("Language", fmt.Sprintf("Language changed to %s", lang), mw.window)
-	// В реальной реализации здесь нужно:
-	// 1. Обновить локаль
-	// 2. Перезагрузить все тексты в интерфейсе
+	localesDir := filepath.Join("assets", "locales") // Укажите правильный путь
+	if err := mw.locale.SetLanguage(lang, localesDir); err != nil {
+		log.Printf("Ошибка смены языка: %v", err)
+		return
+	}
+
+	// Обновляем меню
+	mw.window.SetMainMenu(mw.setupMenu())
+
+	// Обновляем таблицу
+	mw.refreshTable()
+
+	// Обновляем заголовок окна
+	mw.window.SetTitle(mw.locale.Translate("Manufacturers Database"))
 }
 
 func (mw *MainWindow) showAboutDialog() {
@@ -426,9 +435,30 @@ func (mw *MainWindow) showNotification(message string) {
 }
 
 func (mw *MainWindow) refreshTable() {
-	// Полная перерисовка содержимого окна
-	content := container.NewBorder(nil, nil, nil, nil, mw.createManufacturersTable())
-	mw.window.SetContent(content)
+	if mw.mainContainer == nil {
+		return
+	}
+
+	// Получаем текущий Scroll контейнер
+	oldScroll, ok := mw.mainContainer.Objects[0].(*container.Scroll)
+	if !ok {
+		return
+	}
+
+	// Сохраняем позицию прокрутки
+	scrollOffset := int(oldScroll.Offset.Y)
+
+	// Создаем новую таблицу
+	newTable := mw.createManufacturersTable()
+	mw.table = newTable
+
+	// Создаем новый Scroll контейнер
+	newScroll := container.NewScroll(newTable)
+	newScroll.Offset.Y = scrollOffset
+
+	// Обновляем главный контейнер
+	mw.mainContainer.Objects[0] = newScroll
+	mw.mainContainer.Refresh()
 }
 
 func (mw *MainWindow) createManufacturersTable() *widget.Table {
@@ -497,24 +527,14 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	)
 
 	// Настройка ширины столбцов
-	table.SetColumnWidth(0, 80)  // ID
-	table.SetColumnWidth(1, 200) // Name
-	table.SetColumnWidth(2, 150) // Country
-	table.SetColumnWidth(3, 250) // Address
-	table.SetColumnWidth(4, 150) // Phone
-	table.SetColumnWidth(5, 200) // Email
-	table.SetColumnWidth(6, 200) // Product Type
-	table.SetColumnWidth(7, 120) // Revenue
-
-	// Обработчик выбора строки
-	table.OnSelected = func(id widget.TableCellID) {
-		if id.Row == 0 {
-			return // Игнорируем заголовки
-		}
-
-		// Сохраняем выбранную строку
-		mw.selectedRow = id.Row
-	}
+	table.SetColumnWidth(0, 80)  // ID - фиксированная
+	table.SetColumnWidth(1, 200) // Name - растягивается
+	table.SetColumnWidth(2, 150) // Country - фиксированная
+	table.SetColumnWidth(3, 250) // Address - растягивается
+	table.SetColumnWidth(4, 150) // Phone - фиксированная
+	table.SetColumnWidth(5, 200) // Email - растягивается
+	table.SetColumnWidth(6, 200) // Product Type - растягивается
+	table.SetColumnWidth(7, 120) // Revenue - фиксированная
 
 	return table
 }

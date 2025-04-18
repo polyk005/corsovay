@@ -12,25 +12,24 @@ import (
 
 func main() {
 	// Получаем путь к корню проекта
-	_, filename, _, _ := runtime.Caller(0)
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		log.Fatal("Не удалось определить путь к проекту")
+	}
 	rootDir := filepath.Dir(filepath.Dir(filename))
 
-	// Формируем путь к файлам локализации
-	localesPath := filepath.Join(rootDir, "assets", "locales", "ru.json")
+	// Формируем путь к директории с локализациями
+	localesDir := filepath.Join(rootDir, "assets", "locales")
 
-	// Инициализация локализации
-	locale, err := localization.NewLocale(localesPath)
+	// Инициализация локализации (можно передавать "en" или "ru")
+	locale, err := localization.NewLocale(localesDir)
 	if err != nil {
-		log.Fatalf("Не удалось загрузить локализацию: %v\nПроверьте путь: %s", err, localesPath)
+		log.Fatalf("Не удалось загрузить локализацию: %v\nПроверьте путь: %s", err, localesDir)
 	}
 
-	// Инициализация репозитория
+	// Остальной код без изменений
 	repo := repository.NewManufacturerRepository(filepath.Join(rootDir, "data", "manufacturers.csv"))
-
-	// Инициализация контроллера
 	ctrl := controller.NewManufacturerController(repo)
-
-	// Создание и отображение главного окна
 	mainWindow := view.NewMainWindow(ctrl, locale)
 	mainWindow.Show()
 }

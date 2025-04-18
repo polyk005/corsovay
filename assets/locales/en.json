@@ -1,10 +1,16 @@
 {
     "Manufacturers Database": "Manufacturers Database",
     "File": "File",
+    "New": "New",
     "Open": "Open",
     "Save": "Save",
-    "Help": "Help",
-    "About": "About",
+    "Save As": "Save As",
+    "Exit": "Exit",
+    "Edit": "Edit",
+    "Add": "Add",
+    "Delete": "Delete",
+    "View": "View",
+    "Language": "Language",
     "Name": "Name",
     "Country": "Country",
     "Address": "Address",
@@ -13,4 +19,4 @@
     "Product Type": "Product Type",
     "Founded Year": "Founded Year",
     "Revenue": "Revenue"
-}
+  }
