@@ -7,15 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"path"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"fyne.io/fyne"
-	"fyne.io/fyne/app"
 	"fyne.io/fyne/container"
 	"fyne.io/fyne/dialog"
+	"fyne.io/fyne/storage"
 	"fyne.io/fyne/widget"
 )
 
@@ -32,27 +34,32 @@ type MainWindow struct {
 	selectedRow    int
 }
 
-func NewMainWindow(controller *controller.ManufacturerController, locale *localization.Locale) *MainWindow {
+func NewMainWindow(app fyne.App, controller *controller.ManufacturerController, locale *localization.Locale) *MainWindow {
 	if controller == nil {
 		log.Fatal("Контроллер не инициализирован")
 	}
-	a := app.New()
-	w := a.NewWindow(locale.Translate("Manufacturers Database"))
+
+	w := app.NewWindow(locale.Translate("База данных производителей"))
+
+	// Инициализация пустой базы данных
+	controller.NewDatabase()
 
 	return &MainWindow{
-		app:        a,
-		window:     w,
-		controller: controller,
-		locale:     locale,
+		app:            app,
+		window:         w,
+		controller:     controller,
+		locale:         locale,
+		currentFile:    "",
+		unsavedChanges: false,
 	}
 }
 
 func (mw *MainWindow) setupMenu() *fyne.MainMenu {
 	fileMenu := fyne.NewMenu(mw.locale.Translate("File"),
-		fyne.NewMenuItem(mw.locale.Translate("New"), mw.onNew),
+		fyne.NewMenuItem(mw.locale.Translate("New"), mw.onCreateNewFile),
 		fyne.NewMenuItem(mw.locale.Translate("Open"), mw.onOpen),
 		fyne.NewMenuItem(mw.locale.Translate("Save"), mw.onSave),
-		fyne.NewMenuItem(mw.locale.Translate("Save As"), mw.onSaveAs),
+		fyne.NewMenuItem(mw.locale.Translate("Save As"), mw.onSaveAsWithPrompt),
 		fyne.NewMenuItem(mw.locale.Translate("Export to PDF"), mw.onExportPDF),
 		fyne.NewMenuItem(mw.locale.Translate("Print"), mw.onPrint),
 		fyne.NewMenuItem(mw.locale.Translate("Exit"), func() {
@@ -107,6 +114,7 @@ func (mw *MainWindow) checkUnsavedChanges(callback func()) {
 func (mw *MainWindow) Show() {
 	mw.window.SetMainMenu(mw.setupMenu())
 
+	// Initialize with empty table
 	mw.table = mw.createManufacturersTable()
 	scroll := container.NewScroll(mw.table)
 
@@ -122,20 +130,21 @@ func (mw *MainWindow) Show() {
 
 func (mw *MainWindow) onNew() {
 	mw.checkUnsavedChanges(func() {
+		// Создаем новую пустую базу
 		mw.controller.NewDatabase()
 		mw.currentFile = ""
 		mw.unsavedChanges = false
 		mw.refreshTable()
-		mw.window.SetTitle(mw.locale.Translate("Manufacturers Database"))
+		mw.updateWindowTitle()
+		mw.showNotification("Создана новая база данных")
 	})
 }
 
 func (mw *MainWindow) onOpen() {
 	mw.checkUnsavedChanges(func() {
-		dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
-			// Убрали объявление fileFilter, так как оно не используется
+		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil {
-				dialog.ShowError(err, mw.window)
+				dialog.ShowError(fmt.Errorf("ошибка при выборе файла: %v", err), mw.window)
 				return
 			}
 			if reader == nil {
@@ -143,24 +152,62 @@ func (mw *MainWindow) onOpen() {
 			}
 			defer reader.Close()
 
-			filePath := path.Clean(strings.TrimPrefix(reader.URI().String(), "file://"))
+			filePath := uriToPath(reader.URI())
+
+			if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+				dialog.ShowError(errors.New("выберите файл с расширением .csv"), mw.window)
+				return
+			}
+
 			if err := mw.controller.LoadFromFile(filePath); err != nil {
-				dialog.ShowError(err, mw.window)
+				dialog.ShowError(fmt.Errorf("ошибка загрузки файла:\n%v", err), mw.window)
 				return
 			}
 
 			mw.currentFile = filePath
 			mw.unsavedChanges = false
 			mw.refreshTable()
-			mw.window.SetTitle(mw.locale.Translate("Manufacturers Database") + " - " + filepath.Base(filePath))
-			mw.showNotification(mw.locale.Translate("File loaded successfully"))
+			mw.updateWindowTitle()
+			mw.showNotification("Файл успешно открыт")
 		}, mw.window)
+
+		fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
+
+		// Устанавливаем начальную директорию
+		if mw.currentFile != "" {
+			dirURI := storage.NewFileURI(filepath.Dir(mw.currentFile))
+			listableURI, _ := storage.ListerForURI(dirURI)
+			fileDialog.SetLocation(listableURI)
+		} else {
+			// Директория по умолчанию - домашняя
+			homeDir, _ := os.UserHomeDir()
+			homeURI := storage.NewFileURI(homeDir)
+			listableURI, _ := storage.ListerForURI(homeURI)
+			fileDialog.SetLocation(listableURI)
+		}
+
+		fileDialog.Show()
 	})
 }
 
 func (mw *MainWindow) onSave() {
 	if mw.currentFile == "" {
 		mw.onSaveAs()
+		return
+	}
+
+	// Проверяем, существует ли файл
+	if _, err := os.Stat(mw.currentFile); os.IsNotExist(err) {
+		dialog.ShowConfirm(
+			mw.locale.Translate("File not found"),
+			mw.locale.Translate("The file does not exist. Save as new file?"),
+			func(ok bool) {
+				if ok {
+					mw.onSaveAs()
+				}
+			},
+			mw.window,
+		)
 		return
 	}
 
@@ -174,7 +221,7 @@ func (mw *MainWindow) onSave() {
 }
 
 func (mw *MainWindow) onSaveAs() {
-	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil {
 			dialog.ShowError(err, mw.window)
 			return
@@ -184,7 +231,7 @@ func (mw *MainWindow) onSaveAs() {
 		}
 		defer writer.Close()
 
-		filePath := path.Clean(strings.TrimPrefix(writer.URI().String(), "file://"))
+		filePath := uriToPath(writer.URI())
 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
 			filePath += ".csv"
 		}
@@ -199,6 +246,93 @@ func (mw *MainWindow) onSaveAs() {
 		mw.window.SetTitle(mw.locale.Translate("Manufacturers Database") + " - " + filepath.Base(filePath))
 		mw.showNotification(mw.locale.Translate("File saved successfully"))
 	}, mw.window)
+
+	// Устанавливаем фильтр для CSV файлов
+	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
+
+	// Устанавливаем начальное расположение
+	if mw.currentFile != "" {
+		fileURI := storage.NewFileURI(mw.currentFile)
+		listableURI, _ := storage.ListerForURI(fileURI)
+		saveDialog.SetLocation(listableURI)
+	} else {
+		// Установка расположения по умолчанию
+		homeDir, _ := os.UserHomeDir()
+		defaultPath := filepath.Join(homeDir, "manufacturers.csv")
+		defaultURI := storage.NewFileURI(defaultPath)
+		listableURI, _ := storage.ListerForURI(defaultURI)
+		saveDialog.SetLocation(listableURI)
+	}
+
+	saveDialog.Show()
+}
+
+func (mw *MainWindow) onCreateNewFile() {
+	// Сначала создаем новую базу данных
+	mw.controller.NewDatabase()
+	mw.currentFile = ""
+	mw.unsavedChanges = false
+	mw.refreshTable()
+
+	// Затем сразу предлагаем сохранить
+	mw.onSaveAsWithPrompt()
+}
+
+func (mw *MainWindow) onSaveAsWithPrompt() {
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка сохранения: %v", err), mw.window)
+			return
+		}
+		if writer == nil {
+			return // Пользователь отменил
+		}
+		defer writer.Close()
+
+		// Получаем путь к файлу
+		filePath := uriToPath(writer.URI())
+		if filePath == "" {
+			dialog.ShowError(errors.New("не удалось получить путь к файлу"), mw.window)
+			return
+		}
+
+		// Добавляем расширение .csv если его нет
+		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+			filePath += ".csv"
+		}
+
+		// Сохраняем данные
+		if err := mw.controller.SaveToFile(filePath); err != nil {
+			dialog.ShowError(fmt.Errorf("не удалось сохранить файл: %v", err), mw.window)
+			return
+		}
+
+		mw.currentFile = filePath
+		mw.unsavedChanges = false
+		mw.updateWindowTitle()
+		mw.showNotification("Файл успешно сохранён")
+	}, mw.window)
+
+	// Настраиваем фильтр для CSV файлов
+	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
+
+	// Устанавливаем начальную директорию
+	if mw.currentFile != "" {
+		dirPath := filepath.Dir(mw.currentFile)
+		dirURI := storage.NewFileURI(dirPath)
+		listableURI, _ := storage.ListerForURI(dirURI)
+		saveDialog.SetLocation(listableURI)
+	} else {
+		// Предлагаем стандартное имя файла в домашней директории
+		homeDir, _ := os.UserHomeDir()
+		defaultName := fmt.Sprintf("производители_%s.csv", time.Now().Format("2006-01-02"))
+		defaultPath := filepath.Join(homeDir, defaultName)
+		defaultURI := storage.NewFileURI(defaultPath)
+		listableURI, _ := storage.ListerForURI(defaultURI)
+		saveDialog.SetLocation(listableURI)
+	}
+
+	saveDialog.Show()
 }
 
 func (mw *MainWindow) onExportPDF() {
@@ -207,8 +341,35 @@ func (mw *MainWindow) onExportPDF() {
 }
 
 func (mw *MainWindow) onPrint() {
-	// Здесь должна быть реализация печати
-	dialog.ShowInformation("Print", "Print functionality will be implemented here", mw.window)
+	if len(mw.controller.GetManufacturers()) == 0 {
+		dialog.ShowInformation(
+			mw.locale.Translate("No Data"),
+			mw.locale.Translate("No manufacturers to print. Please load data first."),
+			mw.window,
+		)
+		return
+	}
+
+	// Create a print dialog
+	printDialog := dialog.NewCustomConfirm(
+		mw.locale.Translate("Print"),
+		mw.locale.Translate("Print"),
+		mw.locale.Translate("Cancel"),
+		widget.NewLabel(mw.locale.Translate("Print current manufacturer list?")),
+		func(print bool) {
+			if print {
+				// Actual printing implementation would go here
+				// For now just show a message
+				dialog.ShowInformation(
+					mw.locale.Translate("Print"),
+					mw.locale.Translate("Printing functionality would be implemented here"),
+					mw.window,
+				)
+			}
+		},
+		mw.window,
+	)
+	printDialog.Show()
 }
 
 func (mw *MainWindow) onAdd() {
@@ -228,6 +389,15 @@ func (mw *MainWindow) onEdit(row int) {
 		dialog.ShowInformation(
 			mw.locale.Translate("No Selection"),
 			mw.locale.Translate("Please select a manufacturer first"),
+			mw.window,
+		)
+		return
+	}
+
+	if len(mw.controller.GetManufacturers()) == 0 {
+		dialog.ShowInformation(
+			mw.locale.Translate("No Data"),
+			mw.locale.Translate("No manufacturers available. Please load data first."),
 			mw.window,
 		)
 		return
@@ -560,4 +730,28 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	}
 
 	return table
+}
+
+func uriToPath(uri fyne.URI) string {
+	if uri == nil {
+		return ""
+	}
+	// Для file:// URI просто убираем префикс
+	path := uri.String()
+	if uri.Scheme() == "file" {
+		path = strings.TrimPrefix(path, "file://")
+		// На Windows убираем лишний слеш
+		if runtime.GOOS == "windows" && strings.HasPrefix(path, "/") {
+			path = path[1:]
+		}
+	}
+	return path
+}
+
+func (mw *MainWindow) updateWindowTitle() {
+	title := mw.locale.Translate("База данных производителей")
+	if mw.currentFile != "" {
+		title += " - " + filepath.Base(mw.currentFile)
+	}
+	mw.window.SetTitle(title)
 }

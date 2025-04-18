@@ -32,6 +32,10 @@ func NewManufacturerRepository(filePath string) *ManufacturerRepository {
 	return repo
 }
 
+func (r *ManufacturerRepository) SetFilePath(path string) {
+	r.filePath = path
+}
+
 // Load загружает данные из CSV файла
 func (r *ManufacturerRepository) Load() error {
 	file, err := os.Open(r.filePath)

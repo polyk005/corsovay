@@ -6,7 +6,9 @@ import (
 	"cursovay/internal/service"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 )
@@ -75,8 +77,13 @@ func (c *ManufacturerController) UpdateManufacturer(m *model.Manufacturer) error
 func (c *ManufacturerController) DeleteManufacturer(id int) error {
 	for i, item := range c.manufacturers {
 		if item.ID == id {
-			c.manufacturers = append(c.manufacturers[:i], c.manufacturers[i+1:]...)
-			// Сохраняем в файл, если он указан
+			// Создаем новый слайс без удаленного элемента
+			newManufacturers := make([]model.Manufacturer, 0, len(c.manufacturers)-1)
+			newManufacturers = append(newManufacturers, c.manufacturers[:i]...)
+			newManufacturers = append(newManufacturers, c.manufacturers[i+1:]...)
+
+			c.manufacturers = newManufacturers
+
 			if c.currentFile != "" {
 				return c.SaveToFile(c.currentFile)
 			}
@@ -86,16 +93,50 @@ func (c *ManufacturerController) DeleteManufacturer(id int) error {
 	return errors.New("manufacturer not found")
 }
 
+func (c *ManufacturerController) FileExists(filePath string) bool {
+	if _, err := os.Stat(filePath); err == nil {
+		return true
+	}
+	return false
+}
+
 func (c *ManufacturerController) LoadFromFile(filePath string) error {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// Создаем пустой файл, если его нет
+		file, createErr := os.Create(filePath)
+		if createErr != nil {
+			return fmt.Errorf("не удалось создать файл: %v", createErr)
+		}
+		file.Close()
+
+		// Инициализируем пустую базу
+		c.manufacturers = []model.Manufacturer{}
+		c.currentFile = filePath
+		return nil
+	}
+
+	// Проверяем, не пустой ли файл
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("ошибка проверки файла: %v", err)
+	}
+
+	if fileInfo.Size() == 0 {
+		// Файл существует, но пустой - инициализируем пустую базу
+		c.manufacturers = []model.Manufacturer{}
+		c.currentFile = filePath
+		return nil
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("ошибка открытия файла: %v", err)
 	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
 	reader.Comma = ','
-	reader.FieldsPerRecord = 8 // 8 полей в каждой строке
+	reader.FieldsPerRecord = -1 // Разрешаем разное количество полей
 
 	records, err := reader.ReadAll()
 	if err != nil {
@@ -104,26 +145,19 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 
 	var manufacturers []model.Manufacturer
 	for i, record := range records {
-		if i == 0 {
+		if i == 0 && len(record) > 0 && record[0] == "ID" {
 			continue // Пропускаем заголовок
 		}
 
-		id, err := strconv.Atoi(record[0])
-		if err != nil {
-			return err
+		if len(record) < 8 {
+			continue // Пропускаем неполные записи
 		}
 
-		foundedYear, err := strconv.Atoi(record[6])
-		if err != nil {
-			return err
-		}
+		id, _ := strconv.Atoi(record[0])
+		year, _ := strconv.Atoi(record[6])
+		revenue, _ := strconv.ParseFloat(record[7], 64)
 
-		revenue, err := strconv.ParseFloat(record[7], 64)
-		if err != nil {
-			return err
-		}
-
-		manufacturer := model.Manufacturer{
+		manufacturers = append(manufacturers, model.Manufacturer{
 			ID:          id,
 			Name:        record[1],
 			Country:     record[2],
@@ -131,10 +165,9 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 			Phone:       record[4],
 			Email:       record[5],
 			ProductType: record[6],
-			FoundedYear: foundedYear,
+			FoundedYear: year,
 			Revenue:     revenue,
-		}
-		manufacturers = append(manufacturers, manufacturer)
+		})
 	}
 
 	c.manufacturers = manufacturers
@@ -143,9 +176,14 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 }
 
 func (c *ManufacturerController) SaveToFile(filePath string) error {
+	// Создаем директорию если ее нет
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("не удалось создать директорию: %v", err)
+	}
+
 	file, err := os.Create(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось создать файл: %v", err)
 	}
 	defer file.Close()
 
@@ -153,19 +191,9 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 	defer writer.Flush()
 
 	// Записываем заголовки
-	headers := []string{
-		"ID",
-		"Name",
-		"Country",
-		"Address",
-		"Phone",
-		"Email",
-		"ProductType",
-		"FoundedYear",
-		"Revenue",
-	}
+	headers := []string{"ID", "Name", "Country", "Address", "Phone", "Email", "ProductType", "FoundedYear", "Revenue"}
 	if err := writer.Write(headers); err != nil {
-		return err
+		return fmt.Errorf("ошибка записи заголовков: %v", err)
 	}
 
 	// Записываем данные
@@ -182,7 +210,7 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 			strconv.FormatFloat(m.Revenue, 'f', 2, 64),
 		}
 		if err := writer.Write(record); err != nil {
-			return err
+			return fmt.Errorf("ошибка записи данных: %v", err)
 		}
 	}
 
@@ -258,6 +286,10 @@ func (c *ManufacturerController) AddManufacturer(m *model.Manufacturer) error {
 	return nil
 }
 
+func (c *ManufacturerController) SetCurrentFile(path string) {
+	c.currentFile = path
+}
+
 func (c *ManufacturerController) GetCurrentFile() string {
 	return c.currentFile
 }
@@ -289,4 +321,9 @@ func (c *ManufacturerController) GetManufacturerByIndex(index int) (*model.Manuf
 		return nil, errors.New("invalid index")
 	}
 	return &c.manufacturers[index], nil
+}
+
+// In controller/manufacturer_controller.go
+func (c *ManufacturerController) GetManufacturers() []model.Manufacturer {
+	return c.manufacturers
 }

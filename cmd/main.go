@@ -8,28 +8,32 @@ import (
 	"log"
 	"path/filepath"
 	"runtime"
+
+	"fyne.io/fyne/app"
 )
 
 func main() {
-	// Получаем путь к корню проекта
+	myApp := app.NewWithID("ru.mydomain.proizvoditeli")
+
+	// Определяем пути
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		log.Fatal("Не удалось определить путь к проекту")
 	}
 	rootDir := filepath.Dir(filepath.Dir(filename))
-
-	// Формируем путь к директории с локализациями
 	localesDir := filepath.Join(rootDir, "assets", "locales")
 
-	// Инициализация локализации (можно передавать "en" или "ru")
+	// Инициализация локализации
 	locale, err := localization.NewLocale(localesDir)
 	if err != nil {
-		log.Fatalf("Не удалось загрузить локализацию: %v\nПроверьте путь: %s", err, localesDir)
+		log.Fatalf("Ошибка загрузки локализации: %v", err)
 	}
 
-	// Остальной код без изменений
-	repo := repository.NewManufacturerRepository(filepath.Join(rootDir, "data", "manufacturers.csv"))
+	// Инициализация репозитория без привязки к файлу
+	repo := repository.NewManufacturerRepository("")
 	ctrl := controller.NewManufacturerController(repo)
-	mainWindow := view.NewMainWindow(ctrl, locale)
+
+	// Создаем главное окно
+	mainWindow := view.NewMainWindow(myApp, ctrl, locale)
 	mainWindow.Show()
 }
