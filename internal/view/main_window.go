@@ -91,8 +91,8 @@ func (mw *MainWindow) setupMenu() *fyne.MainMenu {
 		fyne.NewMenuItem("Русский", func() { mw.changeLanguage("ru") }),
 	)
 
-	aboutMenu := fyne.NewMenu("Справка",
-		fyne.NewMenuItem("О программе", mw.Show))
+	aboutMenu := fyne.NewMenu(mw.locale.Translate("Справка"),
+		fyne.NewMenuItem(mw.locale.Translate("О программе"), mw.aboutMenu))
 
 	return fyne.NewMainMenu(
 		fileMenu,
@@ -592,28 +592,28 @@ func (mw *MainWindow) changeLanguage(lang string) {
 	mw.window.SetTitle(mw.locale.Translate("Manufacturers Database"))
 }
 
-// func (mw *MainWindow) aboutMenu() {
-// 	aboutText := fmt.Sprintf(`%s
-// %s 1.0.0
+func (mw *MainWindow) aboutMenu() {
+	aboutText := fmt.Sprintf(`%s
+%s 1.0.0
 
-// %s: Поляков Кирилл Дмитриевич
-// %s: ИЦТМС-2-2
-// НИУ МГСУ`,
-// 		mw.locale.Translate("Construction Materials Manufacturers"),
-// 		mw.locale.Translate("Version"),
-// 		mw.locale.Translate("Author"),
-// 		mw.locale.Translate("Group"))
+%s: Поляков Кирилл Дмитриевич
+%s: ИЦТМС-2-2
+НИУ МГСУ`,
+		mw.locale.Translate("Construction Materials Manufacturers"),
+		mw.locale.Translate("Version"),
+		mw.locale.Translate("Author"),
+		mw.locale.Translate("Group"))
 
-// 	dialog.ShowCustom(
-// 		mw.locale.Translate("About"),
-// 		mw.locale.Translate("Close"),
-// 		container.NewVBox(
-// 			widget.NewLabel(aboutText),
-// 			widget.NewLabel("© 2025"),
-// 		),
-// 		mw.window,
-// 	)
-// }
+	dialog.ShowCustom(
+		mw.locale.Translate("About"),
+		mw.locale.Translate("Close"),
+		container.NewVBox(
+			widget.NewLabel(aboutText),
+			widget.NewLabel("© 2025"),
+		),
+		mw.window,
+	)
+}
 
 func (mw *MainWindow) showNotification(message string) {
 	notification := fyne.NewNotification(
