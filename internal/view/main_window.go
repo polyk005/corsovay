@@ -24,11 +24,13 @@ import (
 )
 
 type MainWindow struct {
-	app         fyne.App
-	window      fyne.Window
-	table       *widget.Table
-	searchEntry *widget.Entry
-	currentSort struct {
+	app           fyne.App
+	window        fyne.Window
+	table         *widget.Table
+	searchEntry   *widget.Entry
+	searchResults []model.Manufacturer
+	isSearching   bool
+	currentSort   struct {
 		column    string
 		ascending bool
 	}
@@ -145,9 +147,13 @@ func (mw *MainWindow) Show() {
 		container.NewScroll(mw.table), // Центр - таблица с прокруткой
 	)
 
+	content := container.NewMax(mw.mainContainer)
+
 	// Настраиваем окно
 	mw.window.SetContent(mw.mainContainer)
+	mw.window.SetContent(content)
 	mw.window.Resize(fyne.NewSize(1000, 600))
+	mw.window.SetFixedSize(false)
 
 	// Показываем окно (НЕ используем ShowAndRun!)
 	mw.window.ShowAndRun()
@@ -640,13 +646,19 @@ func (mw *MainWindow) refreshTable() {
 }
 
 func (mw *MainWindow) createManufacturersTable() *widget.Table {
-	// Получаем данные с учетом текущей сортировки
-	manufacturers, err := mw.controller.GetAllManufacturers()
-	if err != nil {
-		mw.runOnMainThread(func() {
-			dialog.ShowError(err, mw.window)
-		})
-		return widget.NewTable(nil, nil, nil)
+	var manufacturers []model.Manufacturer
+	var err error
+
+	if mw.isSearching {
+		manufacturers = mw.searchResults
+	} else {
+		manufacturers, err = mw.controller.GetAllManufacturers()
+		if err != nil {
+			mw.runOnMainThread(func() {
+				dialog.ShowError(err, mw.window)
+			})
+			return widget.NewTable(nil, nil, nil)
+		}
 	}
 
 	table := widget.NewTable(
@@ -774,22 +786,31 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 			}
 
 			if column != "" {
-				// Если кликнули по той же колонке - меняем направление сортировки
-				if mw.currentSort.column == column {
-					mw.currentSort.ascending = !mw.currentSort.ascending
+				var err error
+				ascending := !mw.currentSort.ascending
+
+				if mw.isSearching {
+					// Сортируем результаты поиска
+					mw.searchResults, err = mw.controller.Sort(mw.searchResults, column, ascending)
 				} else {
-					// Иначе сортируем по новой колонке по возрастанию
-					mw.currentSort.column = column
-					mw.currentSort.ascending = true
+					// Сортируем все данные
+					var allManufacturers []model.Manufacturer
+					allManufacturers, err = mw.controller.GetAllManufacturers()
+					if err == nil {
+						allManufacturers, err = mw.controller.Sort(allManufacturers, column, ascending)
+						if err == nil {
+							mw.controller.SetManufacturers(allManufacturers)
+						}
+					}
 				}
 
-				// Применяем сортировку
-				if err := mw.controller.Sort(column, mw.currentSort.ascending); err != nil {
+				if err != nil {
 					dialog.ShowError(err, mw.window)
 					return
 				}
 
-				// Обновляем таблицу
+				mw.currentSort.column = column
+				mw.currentSort.ascending = ascending
 				mw.refreshTable()
 			}
 		} else {
@@ -954,6 +975,7 @@ func (mw *MainWindow) setupSearch() *widget.Entry {
 	mw.searchEntry.SetPlaceHolder("Поиск...")
 	mw.searchEntry.OnChanged = func(query string) {
 		if query == "" {
+			mw.isSearching = false
 			mw.refreshTable()
 			return
 		}
@@ -964,11 +986,8 @@ func (mw *MainWindow) setupSearch() *widget.Entry {
 			return
 		}
 
-		// Получаем текущие данные через метод
-		oldData := mw.controller.GetManufacturers()
-		defer mw.controller.SetManufacturers(oldData) // Восстановим после отрисовки
-
-		mw.controller.SetManufacturers(results)
+		mw.searchResults = results
+		mw.isSearching = true
 		mw.refreshTable()
 	}
 	return mw.searchEntry

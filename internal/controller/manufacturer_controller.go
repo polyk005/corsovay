@@ -477,38 +477,70 @@ func (c *ManufacturerController) GenerateChart(column string) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func (c *ManufacturerController) Sort(column string, ascending bool) error {
+func (c *ManufacturerController) Sort(manufacturers []model.Manufacturer, column string, ascending bool) ([]model.Manufacturer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if len(c.manufacturers) == 0 {
-		return nil
+	if len(manufacturers) == 0 {
+		return manufacturers, nil
 	}
 
-	sort.Slice(c.manufacturers, func(i, j int) bool {
+	// Создаем копию для сортировки, чтобы не менять оригинальный массив
+	sorted := make([]model.Manufacturer, len(manufacturers))
+	copy(sorted, manufacturers)
+
+	var sortErr error
+	sort.Slice(sorted, func(i, j int) bool {
 		switch column {
 		case "id":
-			if ascending {
-				return c.manufacturers[i].ID < c.manufacturers[j].ID
-			}
-			return c.manufacturers[i].ID > c.manufacturers[j].ID
+			return c.compareInt(sorted[i].ID, sorted[j].ID, ascending)
 		case "name":
-			if ascending {
-				return strings.ToLower(c.manufacturers[i].Name) < strings.ToLower(c.manufacturers[j].Name)
-			}
-			return strings.ToLower(c.manufacturers[i].Name) > strings.ToLower(c.manufacturers[j].Name)
+			return c.compareString(sorted[i].Name, sorted[j].Name, ascending)
+		case "country":
+			return c.compareString(sorted[i].Country, sorted[j].Country, ascending)
+		case "address":
+			return c.compareString(sorted[i].Address, sorted[j].Address, ascending)
+		case "phone":
+			return c.compareString(sorted[i].Phone, sorted[j].Phone, ascending)
+		case "email":
+			return c.compareString(sorted[i].Email, sorted[j].Email, ascending)
+		case "productType":
+			return c.compareString(sorted[i].ProductType, sorted[j].ProductType, ascending)
+		case "foundedYear":
+			return c.compareInt(sorted[i].FoundedYear, sorted[j].FoundedYear, ascending)
 		case "revenue":
-			if ascending {
-				return c.manufacturers[i].Revenue < c.manufacturers[j].Revenue
-			}
-			return c.manufacturers[i].Revenue > c.manufacturers[j].Revenue
-		// Добавьте другие поля по аналогии
+			return c.compareFloat(sorted[i].Revenue, sorted[j].Revenue, ascending)
 		default:
+			sortErr = fmt.Errorf("неизвестный столбец для сортировки: %s", column)
 			return false
 		}
 	})
 
-	return nil
+	return sorted, sortErr
+}
+
+// Вспомогательные методы для сравнения разных типов данных
+func (c *ManufacturerController) compareInt(a, b int, ascending bool) bool {
+	if ascending {
+		return a < b
+	}
+	return a > b
+}
+
+func (c *ManufacturerController) compareString(a, b string, ascending bool) bool {
+	aLower := strings.ToLower(a)
+	bLower := strings.ToLower(b)
+	if ascending {
+		return aLower < bLower
+	}
+	return aLower > bLower
+}
+
+func (c *ManufacturerController) compareFloat(a, b float64, ascending bool) bool {
+	if ascending {
+		return a < b
+	}
+	return a > b
 }
 
 func (c *ManufacturerController) NewDatabase() {
