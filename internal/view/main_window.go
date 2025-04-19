@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -907,21 +908,99 @@ func (mw *MainWindow) onExportPDF() {
 }
 
 func (mw *MainWindow) onPrint() {
-	loading := dialog.NewProgress("Printing", "Preparing document...", mw.window)
-	loading.Show()
+	progress := dialog.NewProgress("Подготовка к печати", "Формирование документа...", mw.window)
+	progress.Show()
 
 	go func() {
-		err := mw.controller.Print()
+		defer progress.Hide()
+
+		pdfData, err := mw.controller.GetPrintableData()
+		if err != nil {
+			mw.runInUI(func() {
+				dialog.ShowError(err, mw.window)
+			})
+			return
+		}
+
+		tmpFile, err := os.CreateTemp("", "print_*.pdf")
+		if err != nil {
+			mw.runInUI(func() {
+				dialog.ShowError(err, mw.window)
+			})
+			return
+		}
+		defer os.Remove(tmpFile.Name())
+
+		if _, err := tmpFile.Write(pdfData); err != nil {
+			mw.runInUI(func() {
+				dialog.ShowError(err, mw.window)
+			})
+			return
+		}
+		tmpFile.Close()
 
 		mw.runInUI(func() {
-			loading.Hide()
-			if err != nil {
-				dialog.ShowError(fmt.Errorf("printing failed: %v", err), mw.window)
-				return
-			}
-			mw.showNotification("Document sent to printer")
+			// Предложим выбор: печать или просмотр
+			dialog.ShowCustomConfirm(
+				"Печать документа",
+				"Печать",
+				"Просмотр",
+				container.NewVBox(
+					widget.NewLabel("Выберите действие с документом:"),
+					widget.NewLabel(tmpFile.Name()),
+				),
+				func(print bool) {
+					if print {
+						mw.printPDF(tmpFile.Name())
+					} else {
+						mw.openPDF(tmpFile.Name())
+					}
+				},
+				mw.window,
+			)
 		})
 	}()
+}
+
+func (mw *MainWindow) printPDF(filename string) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "mshtml.dll", "PrintHTML", "file:"+filename)
+	case "darwin":
+		cmd = exec.Command("lp", filename)
+	default: // linux и другие unix-системы
+		cmd = exec.Command("lp", filename)
+	}
+
+	if err := cmd.Run(); err != nil {
+		dialog.ShowError(fmt.Errorf("ошибка печати: %v", err), mw.window)
+		return
+	}
+
+	dialog.ShowInformation(
+		"Успешно",
+		"Документ отправлен на печать",
+		mw.window,
+	)
+}
+
+func (mw *MainWindow) openPDF(filename string) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", filename)
+	case "darwin":
+		cmd = exec.Command("open", filename)
+	default:
+		cmd = exec.Command("xdg-open", filename)
+	}
+
+	if err := cmd.Run(); err != nil {
+		dialog.ShowError(fmt.Errorf("не удалось открыть PDF: %v", err), mw.window)
+	}
 }
 
 func (mw *MainWindow) onShowChart() {
@@ -991,4 +1070,31 @@ func (mw *MainWindow) setupSearch() *widget.Entry {
 		mw.refreshTable()
 	}
 	return mw.searchEntry
+}
+
+func getPrintCommand(filename string) (*exec.Cmd, error) {
+	switch runtime.GOOS {
+	case "windows":
+		// Попробуем разные варианты для Windows
+		if path, err := exec.LookPath("AcroRd32.exe"); err == nil {
+			return exec.Command(path, "/t", filename), nil
+		}
+		if path, err := exec.LookPath("SumatraPDF.exe"); err == nil {
+			return exec.Command(path, "-print-to-default", filename), nil
+		}
+		return nil, errors.New("не найдена программа для печати PDF (установите Adobe Reader или SumatraPDF)")
+	case "darwin":
+		if path, err := exec.LookPath("lp"); err == nil {
+			return exec.Command(path, filename), nil
+		}
+		return nil, errors.New("команда 'lp' не найдена")
+	default: // Linux и другие UNIX
+		if path, err := exec.LookPath("lp"); err == nil {
+			return exec.Command(path, filename), nil
+		}
+		if path, err := exec.LookPath("evince"); err == nil {
+			return exec.Command(path, "-p", filename), nil
+		}
+		return nil, errors.New("не найдены команды 'lp' или 'evince'")
+	}
 }

@@ -660,3 +660,54 @@ func (c *ManufacturerController) SetManufacturers(manufacturers []model.Manufact
 	defer c.mu.Unlock()
 	c.manufacturers = manufacturers
 }
+
+func (c *ManufacturerController) GetPrintableData() ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.manufacturers) == 0 {
+		return nil, errors.New("база данных пуста")
+	}
+
+	// Создаем PDF документ
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+	pdf.SetFont("Arial", "B", 16)
+	pdf.Cell(40, 10, "База данных производителей")
+	pdf.Ln(12)
+
+	// Заголовки таблицы
+	headers := []string{"ID", "Название", "Страна", "Адрес", "Телефон", "Email", "Тип продукции", "Год осн.", "Доход"}
+	widths := []float64{10, 30, 20, 40, 25, 40, 30, 15, 20}
+
+	// Устанавливаем шрифт для таблицы
+	pdf.SetFont("Arial", "B", 10)
+	for i, header := range headers {
+		pdf.CellFormat(widths[i], 7, header, "1", 0, "C", false, 0, "")
+	}
+	pdf.Ln(-1)
+
+	// Данные таблицы
+	pdf.SetFont("Arial", "", 8)
+	for _, m := range c.manufacturers {
+		pdf.CellFormat(widths[0], 6, strconv.Itoa(m.ID), "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[1], 6, m.Name, "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[2], 6, m.Country, "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[3], 6, m.Address, "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[4], 6, m.Phone, "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[5], 6, m.Email, "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[6], 6, m.ProductType, "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[7], 6, strconv.Itoa(m.FoundedYear), "1", 0, "", false, 0, "")
+		pdf.CellFormat(widths[8], 6, fmt.Sprintf("%.2f", m.Revenue), "1", 0, "R", false, 0, "")
+		pdf.Ln(-1)
+	}
+
+	// Сохраняем PDF в буфер
+	var buf bytes.Buffer
+	err := pdf.Output(&buf)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
