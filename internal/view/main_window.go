@@ -86,20 +86,21 @@ func (mw *MainWindow) setupMenu() *fyne.MainMenu {
 		fyne.NewMenuItem(mw.locale.Translate("Chart"), mw.onShowChart),
 	)
 
+	helpMenu := fyne.NewMenu(mw.locale.Translate("About Program"),
+		fyne.NewMenuItem(mw.locale.Translate("Help"), mw.helpMenu),
+	)
+
 	langMenu := fyne.NewMenu(mw.locale.Translate("Language"),
 		fyne.NewMenuItem("English", func() { mw.changeLanguage("en") }),
 		fyne.NewMenuItem("Русский", func() { mw.changeLanguage("ru") }),
 	)
-
-	aboutMenu := fyne.NewMenu(mw.locale.Translate("Справка"),
-		fyne.NewMenuItem(mw.locale.Translate("О программе"), mw.aboutMenu))
 
 	return fyne.NewMainMenu(
 		fileMenu,
 		editMenu,
 		viewMenu,
 		langMenu,
-		aboutMenu,
+		helpMenu,
 	)
 }
 
@@ -592,7 +593,7 @@ func (mw *MainWindow) changeLanguage(lang string) {
 	mw.window.SetTitle(mw.locale.Translate("Manufacturers Database"))
 }
 
-func (mw *MainWindow) aboutMenu() {
+func (mw *MainWindow) helpMenu() {
 	aboutText := fmt.Sprintf(`%s
 %s 1.0.0
 
