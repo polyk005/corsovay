@@ -91,11 +91,15 @@ func (mw *MainWindow) setupMenu() *fyne.MainMenu {
 		fyne.NewMenuItem("Русский", func() { mw.changeLanguage("ru") }),
 	)
 
+	aboutMenu := fyne.NewMenu("Справка",
+		fyne.NewMenuItem("О программе", mw.Show))
+
 	return fyne.NewMainMenu(
 		fileMenu,
 		editMenu,
 		viewMenu,
 		langMenu,
+		aboutMenu,
 	)
 }
 
@@ -119,29 +123,32 @@ func (mw *MainWindow) checkUnsavedChanges(callback func()) {
 }
 
 func (mw *MainWindow) Show() {
+	// Устанавливаем меню
 	mw.window.SetMainMenu(mw.setupMenu())
 
-	// Initialize with empty table
+	// Инициализируем таблицу
 	mw.table = mw.createManufacturersTable()
-	scroll := container.NewScroll(mw.table)
 
+	// Создаем поисковую панель
 	searchBox := container.NewVBox(
 		mw.setupSearch(),
 		widget.NewSeparator(),
 	)
 
+	// Собираем основной интерфейс
 	mw.mainContainer = container.NewBorder(
-		searchBox, nil, nil, nil,
-		container.NewScroll(mw.table),
+		searchBox,                     // Верх - панель поиска
+		nil,                           // Низ (можно добавить статус бар)
+		nil,                           // Левая панель
+		nil,                           // Правая панель
+		container.NewScroll(mw.table), // Центр - таблица с прокруткой
 	)
 
-	mw.mainContainer = container.NewBorder(
-		nil, nil, nil, nil,
-		scroll,
-	)
-
+	// Настраиваем окно
 	mw.window.SetContent(mw.mainContainer)
 	mw.window.Resize(fyne.NewSize(1000, 600))
+
+	// Показываем окно (НЕ используем ShowAndRun!)
 	mw.window.ShowAndRun()
 }
 
@@ -585,7 +592,7 @@ func (mw *MainWindow) changeLanguage(lang string) {
 	mw.window.SetTitle(mw.locale.Translate("Manufacturers Database"))
 }
 
-// func (mw *MainWindow) showAboutDialog() {
+// func (mw *MainWindow) aboutMenu() {
 // 	aboutText := fmt.Sprintf(`%s
 // %s 1.0.0
 
@@ -796,9 +803,9 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 // Вспомогательная функция для отображения иконки сортировки
 func (mw *MainWindow) getSortIcon() string {
 	if mw.currentSort.ascending {
-		return " ↑"
+		return "^"
 	}
-	return " ↓"
+	return "!^!"
 }
 
 func uriToPath(uri fyne.URI) string {
