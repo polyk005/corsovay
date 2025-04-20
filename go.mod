@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	fyne.io/fyne v1.4.3
 	fyne.io/fyne/v2 v2.6.0
+	github.com/google/uuid v1.6.0
 	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/wcharczuk/go-chart v2.0.1+incompatible
 	github.com/wcharczuk/go-chart/v2 v2.1.2

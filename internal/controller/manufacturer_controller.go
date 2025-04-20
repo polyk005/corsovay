@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"cursovay/internal/connect"
 	"cursovay/internal/model"
 	"cursovay/internal/repository"
 	"cursovay/internal/service"
@@ -23,8 +24,11 @@ import (
 
 type ManufacturerController struct {
 	service       *service.ManufacturerService
+	repo          *repository.ManufacturerRepository
 	manufacturers []model.Manufacturer
 	currentFile   string
+	documents     []*connect.Document
+	activeDocID   string
 	mu            sync.Mutex
 }
 
@@ -34,10 +38,129 @@ func NewManufacturerController(repo *repository.ManufacturerRepository) *Manufac
 		manufacturers: []model.Manufacturer{},
 		currentFile:   "",
 		mu:            sync.Mutex{},
+		repo:          repo,
+		documents:     make([]*connect.Document, 0),
+		activeDocID:   "",
 	}
 }
 
+func (c *ManufacturerController) AddDocument(doc *connect.Document) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.documents = append(c.documents, doc)
+	c.activeDocID = doc.ID
+}
+
+func (c *ManufacturerController) GetActiveDocument() *connect.Document {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, doc := range c.documents {
+		if doc.ID == c.activeDocID {
+			return doc
+		}
+	}
+	return nil
+}
+
+func (c *ManufacturerController) SetActiveDocument(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, doc := range c.documents {
+		doc.Active = (doc.ID == id)
+	}
+	c.activeDocID = id
+}
+
+func (c *ManufacturerController) CloseDocument(id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i, doc := range c.documents {
+		if doc.ID == id {
+			c.documents = append(c.documents[:i], c.documents[i+1:]...)
+
+			// Если закрыли активный документ, выбираем новый активный
+			if id == c.activeDocID {
+				if len(c.documents) > 0 {
+					c.activeDocID = c.documents[0].ID
+					c.documents[0].Active = true
+				} else {
+					c.activeDocID = ""
+				}
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("document not found")
+}
+
+func (c *ManufacturerController) GetDocuments() []*connect.Document {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.documents
+}
+
+func (c *ManufacturerController) SaveToFileWithData(filePath string, manufacturers []model.Manufacturer) error {
+	return c.saveToFileWithData(filePath, manufacturers)
+}
+
+func (c *ManufacturerController) saveToFileWithData(filePath string, manufacturers []model.Manufacturer) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Записываем заголовки
+	headers := []string{
+		"ID",
+		"Name",
+		"Country",
+		"Address",
+		"Phone",
+		"Email",
+		"ProductType",
+		"FoundedYear",
+		"Revenue",
+	}
+	if err := writer.Write(headers); err != nil {
+		return err
+	}
+
+	// Записываем данные
+	for _, m := range manufacturers {
+		record := []string{
+			strconv.Itoa(m.ID),
+			m.Name,
+			m.Country,
+			m.Address,
+			m.Phone,
+			m.Email,
+			m.ProductType,
+			strconv.Itoa(m.FoundedYear),
+			strconv.FormatFloat(m.Revenue, 'f', 2, 64),
+		}
+		if err := writer.Write(record); err != nil {
+			return err
+		}
+	}
+
+	c.currentFile = filePath
+	return nil
+}
+
 func (c *ManufacturerController) GetAllManufacturers() ([]model.Manufacturer, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	// Если данные уже загружены, возвращаем их
 	if len(c.manufacturers) > 0 {
 		return c.manufacturers, nil
@@ -227,28 +350,26 @@ func (c *ManufacturerController) FileExists(filePath string) bool {
 }
 
 func (c *ManufacturerController) LoadFromFile(filePath string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		// Создаем пустой файл, если его нет
 		file, createErr := os.Create(filePath)
 		if createErr != nil {
 			return fmt.Errorf("не удалось создать файл: %v", createErr)
 		}
 		file.Close()
-
-		// Инициализируем пустую базу
 		c.manufacturers = []model.Manufacturer{}
 		c.currentFile = filePath
 		return nil
 	}
 
-	// Проверяем, не пустой ли файл
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		return fmt.Errorf("ошибка проверки файла: %v", err)
 	}
 
 	if fileInfo.Size() == 0 {
-		// Файл существует, но пустой - инициализируем пустую базу
 		c.manufacturers = []model.Manufacturer{}
 		c.currentFile = filePath
 		return nil
@@ -262,7 +383,7 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 
 	reader := csv.NewReader(file)
 	reader.Comma = ','
-	reader.FieldsPerRecord = -1 // Разрешаем разное количество полей
+	reader.FieldsPerRecord = -1
 
 	records, err := reader.ReadAll()
 	if err != nil {
@@ -272,16 +393,15 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 	var manufacturers []model.Manufacturer
 	for i, record := range records {
 		if i == 0 && len(record) > 0 && record[0] == "ID" {
-			continue // Пропускаем заголовок
+			continue
 		}
-
 		if len(record) < 8 {
-			continue // Пропускаем неполные записи
+			continue
 		}
 
 		id, _ := strconv.Atoi(record[0])
-		year, _ := strconv.Atoi(record[6])
-		revenue, _ := strconv.ParseFloat(record[7], 64)
+		year, _ := strconv.Atoi(record[7])
+		revenue, _ := strconv.ParseFloat(record[8], 64)
 
 		manufacturers = append(manufacturers, model.Manufacturer{
 			ID:          id,
@@ -299,6 +419,13 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 	c.manufacturers = manufacturers
 	c.currentFile = filePath
 	return nil
+}
+
+func (c *ManufacturerController) LoadDataFromFile(filePath string) ([]model.Manufacturer, error) {
+	if err := c.LoadFromFile(filePath); err != nil {
+		return nil, err
+	}
+	return c.manufacturers, nil
 }
 
 func (c *ManufacturerController) SaveToFile(filePath string) error {
@@ -710,4 +837,27 @@ func (c *ManufacturerController) GetPrintableData() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func (c *ManufacturerController) SearchInManufacturers(manufacturers []model.Manufacturer, query string) ([]model.Manufacturer, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	query = strings.ToLower(query)
+	var results []model.Manufacturer
+
+	for _, m := range manufacturers {
+		if strings.Contains(strings.ToLower(m.Name), query) ||
+			strings.Contains(strings.ToLower(m.Country), query) ||
+			strings.Contains(strings.ToLower(m.Address), query) ||
+			strings.Contains(m.Phone, query) ||
+			strings.Contains(strings.ToLower(m.Email), query) ||
+			strings.Contains(strings.ToLower(m.ProductType), query) ||
+			strings.Contains(fmt.Sprintf("%d", m.FoundedYear), query) ||
+			strings.Contains(fmt.Sprintf("%.2f", m.Revenue), query) {
+			results = append(results, m)
+		}
+	}
+
+	return results, nil
 }

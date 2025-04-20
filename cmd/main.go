@@ -29,11 +29,10 @@ func main() {
 		log.Fatalf("Ошибка загрузки локализации: %v", err)
 	}
 
-	// Инициализация репозитория без привязки к файлу
 	repo := repository.NewManufacturerRepository("")
-	ctrl := controller.NewManufacturerController(repo)
+	controller := controller.NewManufacturerController(repo)
 
-	// Создаем главное окно
-	mainWindow := view.NewMainWindow(myApp, ctrl, locale)
+	// Инициализация главного окна
+	mainWindow := view.NewMainWindow(myApp, controller, locale)
 	mainWindow.Show()
 }
