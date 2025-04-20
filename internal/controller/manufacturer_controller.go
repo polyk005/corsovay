@@ -227,32 +227,8 @@ func (c *ManufacturerController) FileExists(filePath string) bool {
 }
 
 func (c *ManufacturerController) LoadFromFile(filePath string) error {
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		// Создаем пустой файл, если его нет
-		file, createErr := os.Create(filePath)
-		if createErr != nil {
-			return fmt.Errorf("не удалось создать файл: %v", createErr)
-		}
-		file.Close()
-
-		// Инициализируем пустую базу
-		c.manufacturers = []model.Manufacturer{}
-		c.currentFile = filePath
-		return nil
-	}
-
-	// Проверяем, не пустой ли файл
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return fmt.Errorf("ошибка проверки файла: %v", err)
-	}
-
-	if fileInfo.Size() == 0 {
-		// Файл существует, но пустой - инициализируем пустую базу
-		c.manufacturers = []model.Manufacturer{}
-		c.currentFile = filePath
-		return nil
-	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -262,7 +238,7 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 
 	reader := csv.NewReader(file)
 	reader.Comma = ','
-	reader.FieldsPerRecord = -1 // Разрешаем разное количество полей
+	reader.FieldsPerRecord = 9 // Убедимся, что всегда 9 полей
 
 	records, err := reader.ReadAll()
 	if err != nil {
@@ -271,17 +247,19 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 
 	var manufacturers []model.Manufacturer
 	for i, record := range records {
-		if i == 0 && len(record) > 0 && record[0] == "ID" {
-			continue // Пропускаем заголовок
+		// Пропускаем заголовок
+		if i == 0 && strings.EqualFold(record[0], "ID") {
+			continue
 		}
 
-		if len(record) < 8 {
-			continue // Пропускаем неполные записи
+		// Проверяем количество полей
+		if len(record) != 9 {
+			continue
 		}
 
 		id, _ := strconv.Atoi(record[0])
-		year, _ := strconv.Atoi(record[6])
-		revenue, _ := strconv.ParseFloat(record[7], 64)
+		year, _ := strconv.Atoi(record[7])
+		revenue, _ := strconv.ParseFloat(record[8], 64)
 
 		manufacturers = append(manufacturers, model.Manufacturer{
 			ID:          id,

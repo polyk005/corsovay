@@ -234,52 +234,18 @@ func (mw *MainWindow) onSave() {
 	}()
 }
 
-// func (mw *MainWindow) onSaveAs() {
-// 	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
-// 		if err != nil {
-// 			dialog.ShowError(err, mw.window)
-// 			return
-// 		}
-// 		if writer == nil {
-// 			return // Пользователь отменил
-// 		}
-// 		defer writer.Close()
+func (mw *MainWindow) checkLoadedData() {
+	manufacturers, err := mw.controller.GetAllManufacturers()
+	if err != nil {
+		dialog.ShowError(err, mw.window)
+		return
+	}
 
-// 		filePath := uriToPath(writer.URI())
-// 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
-// 			filePath += ".csv"
-// 		}
-
-// 		if err := mw.controller.SaveToFile(filePath); err != nil {
-// 			dialog.ShowError(err, mw.window)
-// 			return
-// 		}
-
-// 		mw.currentFile = filePath
-// 		mw.unsavedChanges = false
-// 		mw.window.SetTitle(mw.locale.Translate("Manufacturers Database") + " - " + filepath.Base(filePath))
-// 		mw.showNotification(mw.locale.Translate("File saved successfully"))
-// 	}, mw.window)
-
-// 	// Устанавливаем фильтр для CSV файлов
-// 	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
-
-// 	// Устанавливаем начальное расположение
-// 	if mw.currentFile != "" {
-// 		fileURI := storage.NewFileURI(mw.currentFile)
-// 		listableURI, _ := storage.ListerForURI(fileURI)
-// 		saveDialog.SetLocation(listableURI)
-// 	} else {
-// 		// Установка расположения по умолчанию
-// 		homeDir, _ := os.UserHomeDir()
-// 		defaultPath := filepath.Join(homeDir, "manufacturers.csv")
-// 		defaultURI := storage.NewFileURI(defaultPath)
-// 		listableURI, _ := storage.ListerForURI(defaultURI)
-// 		saveDialog.SetLocation(listableURI)
-// 	}
-
-// 	saveDialog.Show()
-// }
+	fmt.Println("Loaded manufacturers:")
+	for _, m := range manufacturers {
+		fmt.Printf("%+v\n", m)
+	}
+}
 
 func (mw *MainWindow) onCreateNewFile() {
 	// Сначала создаем новую базу данных
@@ -657,167 +623,94 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	} else {
 		manufacturers, err = mw.controller.GetAllManufacturers()
 		if err != nil {
-			mw.runOnMainThread(func() {
-				dialog.ShowError(err, mw.window)
-			})
+			dialog.ShowError(err, mw.window)
 			return widget.NewTable(nil, nil, nil)
 		}
 	}
 
 	table := widget.NewTable(
 		func() (int, int) {
-			return len(manufacturers) + 1, 8 // +1 для заголовков
+			return len(manufacturers) + 1, 9 // +1 для заголовков, 9 столбцов
 		},
 		func() fyne.CanvasObject {
 			return widget.NewLabel("template")
 		},
 		func(tci widget.TableCellID, co fyne.CanvasObject) {
 			label := co.(*widget.Label)
-			label.Wrapping = fyne.TextTruncate
-
-			if tci.Row == 0 { // Отрисовка заголовков
-				switch tci.Col {
-				case 0:
-					text := mw.locale.Translate("ID")
-					if mw.currentSort.column == "id" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
-				case 1:
-					text := mw.locale.Translate("Name")
-					if mw.currentSort.column == "name" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
-				case 2:
-					text := mw.locale.Translate("Country")
-					if mw.currentSort.column == "country" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
-				case 3:
-					text := mw.locale.Translate("Address")
-					if mw.currentSort.column == "address" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
-				case 4:
-					text := mw.locale.Translate("Phone")
-					if mw.currentSort.column == "phone" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
-				case 5:
-					text := mw.locale.Translate("Email")
-					if mw.currentSort.column == "email" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
-				case 6:
-					text := mw.locale.Translate("Product Type")
-					if mw.currentSort.column == "productType" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
-				case 7:
-					text := mw.locale.Translate("Revenue")
-					if mw.currentSort.column == "revenue" {
-						text += mw.getSortIcon()
-					}
-					label.SetText(text)
+			if tci.Row == 0 { // Заголовки
+				headers := []string{
+					mw.locale.Translate("ID"),
+					mw.locale.Translate("Name"),
+					mw.locale.Translate("Country"),
+					mw.locale.Translate("Address"),
+					mw.locale.Translate("Phone"),
+					mw.locale.Translate("Email"),
+					mw.locale.Translate("Product Type"),
+					mw.locale.Translate("Founded Year"),
+					mw.locale.Translate("Revenue"),
 				}
+				label.SetText(headers[tci.Col])
 				label.TextStyle.Bold = true
-				return
-			}
-
-			// Отрисовка данных
-			if tci.Row-1 < len(manufacturers) {
+			} else if tci.Row-1 < len(manufacturers) {
 				m := manufacturers[tci.Row-1]
-				switch tci.Col {
-				case 0:
-					label.SetText(fmt.Sprintf("%d", m.ID))
-				case 1:
-					label.SetText(m.Name)
-				case 2:
-					label.SetText(m.Country)
-				case 3:
-					label.SetText(m.Address)
-				case 4:
-					label.SetText(m.Phone)
-				case 5:
-					label.SetText(m.Email)
-				case 6:
-					label.SetText(m.ProductType)
-				case 7:
-					label.SetText(fmt.Sprintf("%.2f", m.Revenue))
+				values := []string{
+					fmt.Sprintf("%d", m.ID),
+					m.Name,
+					m.Country,
+					m.Address,
+					m.Phone,
+					m.Email,
+					m.ProductType,
+					fmt.Sprintf("%d", m.FoundedYear),
+					fmt.Sprintf("%.2f", m.Revenue),
 				}
+				label.SetText(values[tci.Col])
 			}
 		},
 	)
 
 	// Настройка ширины столбцов
-	table.SetColumnWidth(0, 80)  // ID
-	table.SetColumnWidth(1, 200) // Name
-	table.SetColumnWidth(2, 150) // Country
-	table.SetColumnWidth(3, 250) // Address
-	table.SetColumnWidth(4, 150) // Phone
-	table.SetColumnWidth(5, 200) // Email
-	table.SetColumnWidth(6, 200) // Product Type
-	table.SetColumnWidth(7, 120) // Revenue
+	table.SetColumnWidth(0, 50)  // ID
+	table.SetColumnWidth(1, 150) // Name
+	table.SetColumnWidth(2, 260) // Country
+	table.SetColumnWidth(3, 200) // Address
+	table.SetColumnWidth(4, 120) // Phone
+	table.SetColumnWidth(5, 180) // Email
+	table.SetColumnWidth(6, 180) // Product Type
+	table.SetColumnWidth(7, 180) // Founded Year
+	table.SetColumnWidth(8, 180) // Revenue
 
-	// Обработчик кликов по заголовкам для сортировки
+	// Обработчик сортировки
 	table.OnSelected = func(id widget.TableCellID) {
-		if id.Row == 0 { // Клик по заголовку
-			column := ""
-			switch id.Col {
-			case 0:
-				column = "id"
-			case 1:
-				column = "name"
-			case 2:
-				column = "country"
-			case 3:
-				column = "address"
-			case 4:
-				column = "phone"
-			case 5:
-				column = "email"
-			case 6:
-				column = "productType"
-			case 7:
-				column = "revenue"
-			}
-
-			if column != "" {
-				var err error
+		if id.Row == 0 {
+			columns := []string{"id", "name", "country", "address", "phone",
+				"email", "productType", "foundedYear", "revenue"}
+			if id.Col < len(columns) {
 				ascending := !mw.currentSort.ascending
+				var err error
 
 				if mw.isSearching {
-					// Сортируем результаты поиска
-					mw.searchResults, err = mw.controller.Sort(mw.searchResults, column, ascending)
+					mw.searchResults, err = mw.controller.Sort(mw.searchResults, columns[id.Col], ascending)
 				} else {
-					// Сортируем все данные
-					var allManufacturers []model.Manufacturer
-					allManufacturers, err = mw.controller.GetAllManufacturers()
+					var all []model.Manufacturer
+					all, err = mw.controller.GetAllManufacturers()
 					if err == nil {
-						allManufacturers, err = mw.controller.Sort(allManufacturers, column, ascending)
+						all, err = mw.controller.Sort(all, columns[id.Col], ascending)
 						if err == nil {
-							mw.controller.SetManufacturers(allManufacturers)
+							mw.controller.SetManufacturers(all)
 						}
 					}
 				}
 
-				if err != nil {
+				if err == nil {
+					mw.currentSort.column = columns[id.Col]
+					mw.currentSort.ascending = ascending
+					mw.refreshTable()
+				} else {
 					dialog.ShowError(err, mw.window)
-					return
 				}
-
-				mw.currentSort.column = column
-				mw.currentSort.ascending = ascending
-				mw.refreshTable()
 			}
 		} else {
-			// Клик по данным - запоминаем выбранную строку
 			mw.selectedRow = id.Row
 		}
 	}
