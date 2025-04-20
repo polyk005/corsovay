@@ -2,12 +2,12 @@ package view
 
 import (
 	"bytes"
-	"cursovay/internal/connect"
 	"cursovay/internal/controller"
 	"cursovay/internal/model"
 	"cursovay/pkg/localization"
 	"errors"
 	"fmt"
+	"image"
 	"log"
 	"os"
 	"os/exec"
@@ -18,44 +18,32 @@ import (
 	"time"
 
 	"fyne.io/fyne"
+	"fyne.io/fyne/canvas"
 	"fyne.io/fyne/container"
 	"fyne.io/fyne/dialog"
-	"fyne.io/fyne/layout"
 	"fyne.io/fyne/storage"
-	"fyne.io/fyne/theme"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/widget"
-	"github.com/google/uuid"
 )
 
 type MainWindow struct {
-	app             fyne.App
-	window          fyne.Window
-	currentTabIndex int
-	table           *widget.Table
-	currentDoc      *connect.Document
-	searchEntry     *widget.Entry
-	searchResults   []model.Manufacturer
-	tabs            *container.AppTabs
-	isSearching     bool
-	currentSort     struct {
+	app           fyne.App
+	window        fyne.Window
+	table         *widget.Table
+	chartWindow   fyne.Window
+	searchEntry   *widget.Entry
+	searchResults []model.Manufacturer
+	isSearching   bool
+	currentSort   struct {
 		column    string
 		ascending bool
 	}
+	mainContainer *fyne.Container
+	// tableContainer *fyne.Container
 	controller     *controller.ManufacturerController
 	locale         *localization.Locale
 	currentFile    string
 	unsavedChanges bool
 	selectedRow    int
-}
-
-type document struct {
-	ID            string
-	FilePath      string
-	Controller    *controller.ManufacturerController
-	Manufacturers []model.Manufacturer
-	Unsaved       bool
-	LastModified  time.Time
 }
 
 func NewMainWindow(app fyne.App, controller *controller.ManufacturerController, locale *localization.Locale) *MainWindow {
@@ -75,17 +63,6 @@ func NewMainWindow(app fyne.App, controller *controller.ManufacturerController, 
 		locale:         locale,
 		currentFile:    "",
 		unsavedChanges: false,
-		tabs:           container.NewAppTabs(),
-	}
-}
-
-func newDocument(filePath string, ctrl *controller.ManufacturerController) *document {
-	return &document{
-		ID:           uuid.New().String(),
-		FilePath:     filePath,
-		Controller:   ctrl,
-		Unsaved:      filePath == "",
-		LastModified: time.Now(),
 	}
 }
 
@@ -132,22 +109,6 @@ func (mw *MainWindow) setupMenu() *fyne.MainMenu {
 	)
 }
 
-func (mw *MainWindow) setupTabs() {
-	mw.tabs = container.NewAppTabs()
-	mw.tabs.OnChanged = func(tab *container.TabItem) {
-		// При переключении вкладки обновляем поиск
-		if searchContainer, ok := mw.window.Content().(*fyne.Container); ok {
-			if searchBox, ok := searchContainer.Objects[0].(*fyne.Container); ok {
-				if searchEntry, ok := searchBox.Objects[0].(*widget.Entry); ok {
-					if doc := mw.controller.GetActiveDocument(); doc != nil {
-						searchEntry.SetText(doc.SearchQuery)
-					}
-				}
-			}
-		}
-		mw.refreshTable()
-	}
-}
 func (mw *MainWindow) checkUnsavedChanges(callback func()) {
 	if !mw.unsavedChanges {
 		callback()
@@ -167,160 +128,51 @@ func (mw *MainWindow) checkUnsavedChanges(callback func()) {
 	)
 }
 
-func (mw *MainWindow) createTabForDocument(doc *connect.Document) *container.TabItem {
-	// Создаем таблицу с данными производителей
-	table := widget.NewTable(
-		func() (int, int) {
-			return len(doc.Manufacturers) + 1, 8 // +1 для заголовков
-		},
-		func() fyne.CanvasObject {
-			return widget.NewLabel("template")
-		},
-		func(tci widget.TableCellID, co fyne.CanvasObject) {
-			label := co.(*widget.Label)
-			if tci.Row == 0 {
-				// Заголовки столбцов
-				headers := []string{
-					mw.locale.Translate("ID"),
-					mw.locale.Translate("Name"),
-					mw.locale.Translate("Country"),
-					mw.locale.Translate("Address"),
-					mw.locale.Translate("Phone"),
-					mw.locale.Translate("Email"),
-					mw.locale.Translate("Product Type"),
-					mw.locale.Translate("Revenue"),
-				}
-				label.SetText(headers[tci.Col])
-				label.TextStyle.Bold = true
-			} else {
-				// Данные производителей
-				m := doc.Manufacturers[tci.Row-1]
-				values := []string{
-					fmt.Sprintf("%d", m.ID),
-					m.Name,
-					m.Country,
-					m.Address,
-					m.Phone,
-					m.Email,
-					m.ProductType,
-					fmt.Sprintf("%.2f", m.Revenue),
-				}
-				label.SetText(values[tci.Col])
-			}
-		},
-	)
-
-	// Устанавливаем размеры для всех 8 столбцов
-	table.SetColumnWidth(0, 60)  // ID
-	table.SetColumnWidth(1, 180) // Name
-	table.SetColumnWidth(2, 120) // Country
-	table.SetColumnWidth(3, 250) // Address
-	table.SetColumnWidth(4, 120) // Phone
-	table.SetColumnWidth(5, 200) // Email
-	table.SetColumnWidth(6, 150) // Product Type
-	table.SetColumnWidth(7, 100) // Revenue
-
-	tableScroll := container.NewScroll(table)
-	tableScroll.SetMinSize(fyne.NewSize(800, 400))
-
-	// 4. Создаем панель информации о файле
-	fileInfo := widget.NewLabel("")
-	if doc.FilePath != "" {
-		fileInfo.SetText(fmt.Sprintf("Файл: %s | Изменен: %s",
-			filepath.Base(doc.FilePath),
-			doc.LastModified.Format("2006-01-02 15:04:05")))
-	} else {
-		fileInfo.SetText("Новый файл (не сохранен)")
-	}
-
-	// 5. Создаем кнопку закрытия вкладки
-	closeBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
-		mw.closeTabByDocument(doc)
-	})
-	closeBtn.Importance = widget.LowImportance
-
-	// 6. Собираем нижнюю панель
-	bottomPanel := container.NewHBox(
-		fileInfo,
-		layout.NewSpacer(),
-		closeBtn,
-	)
-
-	// 7. Создаем основной контейнер
-	content := container.NewBorder(
-		nil,         // Верх - ничего
-		bottomPanel, // Низ - наша панель с информацией и кнопкой
-		nil,         // Лево - ничего
-		nil,         // Право - ничего
-		tableScroll, // Центр - таблица
-	)
-
-	// 8. Создаем вкладку
-	tabTitle := mw.getTabTitle(doc)
-	tab := container.NewTabItem(tabTitle, content)
-
-	return tab
-}
-
-func (mw *MainWindow) closeTabByDocument(doc *connect.Document) {
-	for i, t := range mw.tabs.Items {
-		if t.Text == mw.getTabTitle(doc) {
-			mw.tabs.Items = append(mw.tabs.Items[:i], mw.tabs.Items[i+1:]...)
-			mw.controller.CloseDocument(doc.ID)
-
-			doc.SearchQuery = ""
-			doc.IsSearching = false
-			doc.SearchResults = nil
-
-			if len(mw.tabs.Items) == 0 {
-				mw.window.Close() // или другое действие по вашему выбору
-			}
-			break
-		}
-	}
-}
-
-func (mw *MainWindow) refreshTabs() {
-	if len(mw.tabs.Items) == 0 {
-		mw.onCreateNewFile()
-	}
-}
-
-func (mw *MainWindow) getTabTitle(doc *connect.Document) string {
-	if doc.FilePath == "" {
-		return mw.locale.Translate("New Document") + "*"
-	}
-	return filepath.Base(doc.FilePath) + "*"
-}
-
 func (mw *MainWindow) Show() {
+	// Устанавливаем меню
 	mw.window.SetMainMenu(mw.setupMenu())
+
+	// Инициализируем таблицу
 	mw.table = mw.createManufacturersTable()
-	// 1. Создаем поисковую панель
-	searchPanel := mw.setupSearch()
 
-	// 2. Создаем разделитель
-	separator := widget.NewSeparator()
-
-	// 3. Собираем верхнюю часть
-	top := container.NewVBox(
-		searchPanel,
-		separator,
+	// Создаем поисковую панель
+	searchBox := container.NewVBox(
+		mw.setupSearch(),
+		widget.NewSeparator(),
 	)
 
-	// 4. Собираем основной интерфейс
-	mainContent := container.NewBorder(
-		top,     // Верх - поиск и разделитель
-		nil,     // Низ - ничего
-		nil,     // Лево - ничего
-		nil,     // Право - ничего
-		mw.tabs, // Центр - вкладки
+	// Собираем основной интерфейс
+	mw.mainContainer = container.NewBorder(
+		searchBox,                     // Верх - панель поиска
+		nil,                           // Низ (можно добавить статус бар)
+		nil,                           // Левая панель
+		nil,                           // Правая панель
+		container.NewScroll(mw.table), // Центр - таблица с прокруткой
 	)
 
-	mw.window.SetContent(mainContent)
+	content := container.NewMax(mw.mainContainer)
+
+	// Настраиваем окно
+	mw.window.SetContent(mw.mainContainer)
+	mw.window.SetContent(content)
 	mw.window.Resize(fyne.NewSize(1000, 600))
+	mw.window.SetFixedSize(false)
+
+	// Показываем окно (НЕ используем ShowAndRun!)
 	mw.window.ShowAndRun()
 }
+
+// func (mw *MainWindow) onNew() {
+// 	mw.checkUnsavedChanges(func() {
+// 		// Создаем новую пустую базу
+// 		mw.controller.NewDatabase()
+// 		mw.currentFile = ""
+// 		mw.unsavedChanges = false
+// 		mw.refreshTable()
+// 		mw.updateWindowTitle()
+// 		mw.showNotification("Создана новая база данных")
+// 	})
+// }
 
 func (mw *MainWindow) onOpen() {
 	fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
@@ -329,25 +181,28 @@ func (mw *MainWindow) onOpen() {
 			return
 		}
 		if reader == nil {
-			return
+			return // Пользователь отменил
 		}
 		defer reader.Close()
 
 		filePath := uriToPath(reader.URI())
+		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+			dialog.ShowError(errors.New("выберите CSV файл"), mw.window)
+			return
+		}
 
-		manufacturers, err := mw.controller.LoadDataFromFile(filePath)
-		if err != nil {
+		// Сбрасываем текущее состояние
+		mw.controller.NewDatabase()
+
+		if err := mw.controller.LoadFromFile(filePath); err != nil {
 			dialog.ShowError(err, mw.window)
 			return
 		}
 
-		doc := connect.NewDocument(filePath, manufacturers)
-		mw.controller.AddDocument(doc)
-
-		tab := mw.createTabForDocument(doc)
-		mw.tabs.Append(tab)
-		mw.currentTabIndex = len(mw.tabs.Items) - 1
-
+		mw.currentFile = filePath
+		mw.unsavedChanges = false
+		mw.refreshTable()
+		mw.window.SetTitle("База производителей - " + filepath.Base(filePath))
 	}, mw.window)
 
 	fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
@@ -355,82 +210,86 @@ func (mw *MainWindow) onOpen() {
 }
 
 func (mw *MainWindow) onSave() {
-	doc := mw.controller.GetActiveDocument()
-	if doc == nil {
+	if mw.currentFile == "" {
+		mw.onSaveAsWithPrompt()
 		return
 	}
 
-	if doc.FilePath == "" {
-		mw.onSaveAs()
-		return
-	}
+	loading := dialog.NewProgress("Сохранение", "Идет сохранение...", mw.window)
+	loading.Show()
 
-	// Сохраняем текущие данные
-	err := mw.controller.SaveToFile(doc.FilePath)
-	if err != nil {
-		dialog.ShowError(err, mw.window)
-		return
-	}
+	go func() {
+		err := mw.controller.SaveToFile(mw.currentFile)
 
-	doc.Unsaved = false
-	doc.LastModified = time.Now()
-	mw.updateTabTitle(doc)
-	mw.showNotification("Файл сохранен")
+		mw.runInUI(func() {
+			loading.Hide()
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("Ошибка сохранения: %v", err), mw.window)
+				return
+			}
+			mw.unsavedChanges = false
+			mw.showNotification("Файл успешно сохранен")
+			mw.refreshTable() // Обновляем таблицу после сохранения
+		})
+	}()
 }
 
-func (mw *MainWindow) onSaveAs() {
-	doc := mw.controller.GetActiveDocument()
-	if doc == nil {
-		return
-	}
+// func (mw *MainWindow) onSaveAs() {
+// 	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+// 		if err != nil {
+// 			dialog.ShowError(err, mw.window)
+// 			return
+// 		}
+// 		if writer == nil {
+// 			return // Пользователь отменил
+// 		}
+// 		defer writer.Close()
 
-	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
-		if err != nil {
-			dialog.ShowError(err, mw.window)
-			return
-		}
-		if writer == nil {
-			return
-		}
-		defer writer.Close()
+// 		filePath := uriToPath(writer.URI())
+// 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
+// 			filePath += ".csv"
+// 		}
 
-		filePath := uriToPath(writer.URI())
-		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
-			filePath += ".csv"
-		}
+// 		if err := mw.controller.SaveToFile(filePath); err != nil {
+// 			dialog.ShowError(err, mw.window)
+// 			return
+// 		}
 
-		// Устанавливаем новый путь и сохраняем
-		doc.FilePath = filePath
-		err = mw.controller.SaveToFile(filePath)
-		if err != nil {
-			dialog.ShowError(err, mw.window)
-			return
-		}
+// 		mw.currentFile = filePath
+// 		mw.unsavedChanges = false
+// 		mw.window.SetTitle(mw.locale.Translate("Manufacturers Database") + " - " + filepath.Base(filePath))
+// 		mw.showNotification(mw.locale.Translate("File saved successfully"))
+// 	}, mw.window)
 
-		doc.Unsaved = false
-		doc.LastModified = time.Now()
-		mw.updateTabTitle(doc)
-		mw.showNotification("Файл сохранен")
-	}, mw.window)
+// 	// Устанавливаем фильтр для CSV файлов
+// 	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
 
-	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".csv"}))
-	saveDialog.Show()
-}
+// 	// Устанавливаем начальное расположение
+// 	if mw.currentFile != "" {
+// 		fileURI := storage.NewFileURI(mw.currentFile)
+// 		listableURI, _ := storage.ListerForURI(fileURI)
+// 		saveDialog.SetLocation(listableURI)
+// 	} else {
+// 		// Установка расположения по умолчанию
+// 		homeDir, _ := os.UserHomeDir()
+// 		defaultPath := filepath.Join(homeDir, "manufacturers.csv")
+// 		defaultURI := storage.NewFileURI(defaultPath)
+// 		listableURI, _ := storage.ListerForURI(defaultURI)
+// 		saveDialog.SetLocation(listableURI)
+// 	}
+
+// 	saveDialog.Show()
+// }
 
 func (mw *MainWindow) onCreateNewFile() {
-	if mw.controller == nil {
-		return
-	}
+	// Сначала создаем новую базу данных
+	mw.controller.NewDatabase()
+	mw.currentFile = ""
+	mw.unsavedChanges = false
+	mw.refreshTable()
 
-	// Создаем новый документ
-	newDoc := connect.NewDocument("", []model.Manufacturer{})
-	mw.controller.AddDocument(newDoc)
-
-	// Создаем вкладку для нового документа
-	tab := mw.createTabForDocument(newDoc)
-	if tab != nil && mw.tabs != nil {
-		mw.tabs.Append(tab)
-	}
+	// Затем сразу предлагаем сохранить
+	mw.onSaveAsWithPrompt()
 }
 
 func (mw *MainWindow) onSaveAsWithPrompt() {
@@ -508,32 +367,29 @@ func (mw *MainWindow) onEdit(row int) {
 
 	if row <= 0 {
 		dialog.ShowInformation(
-			"Требуется выбор",
-			"Пожалуйста, выберите производителя, щелкнув по строке в таблице",
+			mw.locale.Translate("No Selection"),
+			mw.locale.Translate("Please select a manufacturer first"),
 			mw.window,
 		)
 		return
 	}
 
-	activeDoc := mw.controller.GetActiveDocument()
-	if activeDoc == nil {
+	if len(mw.controller.GetManufacturers()) == 0 {
+		dialog.ShowInformation(
+			mw.locale.Translate("No Data"),
+			mw.locale.Translate("No manufacturers available. Please load data first."),
+			mw.window,
+		)
 		return
 	}
 
-	var manufacturers []model.Manufacturer
-	if activeDoc.IsSearching {
-		manufacturers = activeDoc.SearchResults
-	} else {
-		manufacturers = activeDoc.Manufacturers
-	}
-
-	if row-1 >= len(manufacturers) {
-		dialog.ShowError(errors.New("неверный выбор строки"), mw.window)
+	manufacturer, err := mw.controller.GetManufacturerByRow(row - 1)
+	if err != nil {
+		dialog.ShowError(err, mw.window)
 		return
 	}
 
-	manufacturer := manufacturers[row-1]
-	mw.showEditDialog(&manufacturer, false)
+	mw.showEditDialog(manufacturer, false)
 }
 
 func (mw *MainWindow) onDelete(row int) {
@@ -778,115 +634,26 @@ func (mw *MainWindow) showNotification(message string) {
 }
 
 func (mw *MainWindow) refreshTable() {
-	activeDoc := mw.controller.GetActiveDocument()
-	if activeDoc == nil {
-		return
-	}
+	// Убрали неиспользуемую переменную manufacturers
+	newTable := mw.createManufacturersTable()
 
-	var manufacturers []model.Manufacturer
-	if activeDoc.IsSearching {
-		manufacturers = activeDoc.SearchResults
-	} else {
-		manufacturers = activeDoc.Manufacturers
-	}
-
-	newTable := mw.createTableWithData(manufacturers)
-
-	// Получаем индекс выбранной вкладки
-	selectedIndex := mw.tabs.CurrentTabIndex()
-	if selectedIndex >= 0 && selectedIndex < len(mw.tabs.Items) {
-		if content, ok := mw.tabs.Items[selectedIndex].Content.(*fyne.Container); ok {
-			if scroll, ok := content.Objects[0].(*container.Scroll); ok {
-				scroll.Content = newTable
-				scroll.Refresh()
-			}
+	// Используем time.AfterFunc для безопасного обновления UI
+	time.AfterFunc(50*time.Millisecond, func() {
+		if scroll, ok := mw.mainContainer.Objects[0].(*container.Scroll); ok {
+			scroll.Content = newTable
+			mw.table = newTable
+			scroll.Refresh()
 		}
-	}
-}
-
-func (mw *MainWindow) createTableWithData(manufacturers []model.Manufacturer) *widget.Table {
-	table := widget.NewTable(
-		func() (int, int) {
-			return len(manufacturers) + 1, 10 // +1 для заголовков, 10 столбцов
-		},
-		func() fyne.CanvasObject {
-			return widget.NewLabel("template") // Здесь будет шаблон для ячейки
-		},
-		func(tci widget.TableCellID, co fyne.CanvasObject) {
-			label := co.(*widget.Label)
-
-			if tci.Row == 0 { // Заголовок
-				switch tci.Col {
-				case 0:
-					label.SetText("ID")
-				case 1:
-					label.SetText("Название")
-				case 2:
-					label.SetText("Страна")
-				case 3:
-					label.SetText("Адрес")
-				case 4:
-					label.SetText("Телефон")
-				case 5:
-					label.SetText("Email")
-				case 6:
-					label.SetText("Тип продукта")
-				case 7:
-					label.SetText("Год основания")
-				case 8:
-					label.SetText("Выручка")
-				case 9:
-					label.SetText("Количество сотрудников")
-				}
-			} else { // Данные производителей
-				manufacturer := manufacturers[tci.Row-1] // -1 для пропуска заголовка
-				switch tci.Col {
-				case 0:
-					label.SetText(fmt.Sprintf("%d", manufacturer.ID))
-				case 1:
-					label.SetText(manufacturer.Name)
-				case 2:
-					label.SetText(manufacturer.Country)
-				case 3:
-					label.SetText(manufacturer.Address)
-				case 4:
-					label.SetText(manufacturer.Phone)
-				case 5:
-					label.SetText(manufacturer.Email)
-				case 6:
-					label.SetText(manufacturer.ProductType)
-				case 7:
-					label.SetText(fmt.Sprintf("%d", manufacturer.FoundedYear))
-				case 8:
-					label.SetText(fmt.Sprintf("%.2f", manufacturer.Revenue))
-				case 9:
-					label.SetText(fmt.Sprintf("%d", manufacturer.Employees))
-				}
-			}
-		},
-	)
-
-	// Добавляем обработчик события выбора строки
-	table.OnSelected = func(id widget.TableCellID) {
-		if id.Row > 0 { // Игнорируем заголовки
-			mw.selectedRow = id.Row
-			// Для отладки можно добавить:
-			fmt.Printf("Выбрана строка: %d\n", mw.selectedRow)
-		}
-	}
-
-	return table
+		mw.window.Content().Refresh()
+	})
 }
 
 func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	var manufacturers []model.Manufacturer
 	var err error
 
-	// Получаем данные в зависимости от состояния (поиск/обычный режим)
 	if mw.isSearching {
 		manufacturers = mw.searchResults
-	} else if mw.currentDoc != nil {
-		manufacturers = mw.currentDoc.Manufacturers
 	} else {
 		manufacturers, err = mw.controller.GetAllManufacturers()
 		if err != nil {
@@ -1028,9 +795,6 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 				if mw.isSearching {
 					// Сортируем результаты поиска
 					mw.searchResults, err = mw.controller.Sort(mw.searchResults, column, ascending)
-				} else if mw.currentDoc != nil {
-					// Сортируем данные текущего документа
-					mw.currentDoc.Manufacturers, err = mw.controller.Sort(mw.currentDoc.Manufacturers, column, ascending)
 				} else {
 					// Сортируем все данные
 					var allManufacturers []model.Manufacturer
@@ -1109,6 +873,13 @@ func (mw *MainWindow) runOnMainThread(f func()) {
 		mw.window.Content().Refresh()
 	})
 }
+
+// func (mw *MainWindow) updateUI(f func()) {
+// 	// Используем AfterFunc как самый надежный способ в Fyne 1.x
+// 	time.AfterFunc(10*time.Millisecond, func() {
+// 		f()
+// 	})
+// }
 
 func (mw *MainWindow) onExportPDF() {
 	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
@@ -1239,105 +1010,105 @@ func (mw *MainWindow) onShowChart() {
 	columnSelect := widget.NewSelect([]string{"revenue", "foundedYear"}, nil)
 	columnSelect.SetSelected("revenue")
 
-	dialog.ShowCustomConfirm(
-		"Generate Chart",
-		"Generate",
-		"Cancel",
-		container.NewVBox(
-			widget.NewLabel("Select data column:"),
-			columnSelect,
-		),
-		func(confirm bool) {
-			if !confirm {
-				return
-			}
-
-			loading := dialog.NewProgress("Generating Chart", "Please wait...", mw.window)
-			loading.Show()
-
-			go func() {
-				imgData, err := mw.controller.GenerateChart(columnSelect.Selected)
-
-				mw.runInUI(func() {
-					loading.Hide()
-					if err != nil {
-						dialog.ShowError(err, mw.window)
-						return
-					}
-
-					// Показываем изображение в новом окне
-					img := canvas.NewImageFromReader(bytes.NewReader(imgData), "chart.png")
-					img.FillMode = canvas.ImageFillOriginal
-
-					chartWindow := mw.app.NewWindow("Manufacturers Chart")
-					chartWindow.SetContent(container.NewScroll(&widget.Icon{}))
-					chartWindow.Resize(fyne.NewSize(800, 600))
-					chartWindow.Show()
-				})
-			}()
-		},
-		mw.window,
-	)
-}
-
-func (mw *MainWindow) updateTabTitle(doc *connect.Document) {
-	for _, tab := range mw.tabs.Items {
-		if mw.getTabTitle(doc) == tab.Text {
-			tab.Text = mw.getTabTitle(doc)
-			tab.Content.Refresh()
-			break
-		}
-	}
-}
-
-func (mw *MainWindow) setupSearch() *fyne.Container {
-	searchEntry := widget.NewEntry()
-	searchEntry.SetPlaceHolder(mw.locale.Translate("Search..."))
-
-	// При изменении вкладки обновляем поле поиска
-	mw.tabs.OnChanged = func(tab *container.TabItem) {
-		if doc := mw.controller.GetActiveDocument(); doc != nil {
-			searchEntry.SetText(doc.SearchQuery)
-		}
-	}
-
-	searchEntry.OnChanged = func(query string) {
-		activeDoc := mw.controller.GetActiveDocument()
-		if activeDoc == nil {
+	// Кнопка генерации графика
+	generateBtn := widget.NewButton("Сгенерировать график", func() {
+		if columnSelect.Selected == "" {
+			dialog.ShowInformation("Ошибка", "Выберите колонку для графика", mw.window)
 			return
 		}
 
-		// Сохраняем запрос в документ
-		activeDoc.SearchQuery = query
-
-		if query == "" {
-			activeDoc.IsSearching = false
-			mw.refreshTable()
-			return
-		}
-
-		// Ищем в данных текущего документа
-		results, err := mw.controller.SearchInManufacturers(activeDoc.Manufacturers, query)
+		imgData, err := mw.controller.GenerateChart(columnSelect.Selected)
 		if err != nil {
 			dialog.ShowError(err, mw.window)
 			return
 		}
 
-		activeDoc.SearchResults = results
-		activeDoc.IsSearching = true
-		mw.refreshTable()
+		// Конвертируем PNG данные в изображение
+		img, _, err := image.Decode(bytes.NewReader(imgData))
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("ошибка декодирования изображения: %v", err), mw.window)
+			return
+		}
+
+		// Создаем и настраиваем изображение
+		chartImg := canvas.NewImageFromImage(img)
+		chartImg.FillMode = canvas.ImageFillOriginal
+		chartImg.SetMinSize(fyne.NewSize(10, 20))
+
+		// Обновляем содержимое окна
+		if mw.chartWindow != nil {
+			mw.chartWindow.SetContent(container.NewScroll(chartImg))
+			mw.chartWindow.Canvas().Refresh(chartImg)
+		}
+
+	})
+
+	// Создаем контейнер с элементами управления
+	controls := container.NewVBox(
+		widget.NewLabel("Выберите данные для графика:"),
+		columnSelect,
+		generateBtn,
+	)
+
+	// Создаем окно для графика (если еще не создано)
+	if mw.chartWindow == nil {
+		mw.chartWindow = mw.app.NewWindow("График производителей")
+		mw.chartWindow.SetContent(controls)
+		mw.chartWindow.Resize(fyne.NewSize(850, 650)) // Используем стандартный NewSize из первой версии
+		mw.chartWindow.SetOnClosed(func() {
+			mw.chartWindow = nil
+		})
 	}
 
-	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), func() {
-		searchEntry.SetText("")
-	})
-	clearBtn.Importance = widget.LowImportance
+	mw.chartWindow.Show()
+}
 
-	return container.NewBorder(
-		nil,
-		nil,
-		nil,
-		clearBtn,
-		searchEntry,
-	)
+func (mw *MainWindow) setupSearch() *widget.Entry {
+	mw.searchEntry = widget.NewEntry()
+	mw.searchEntry.SetPlaceHolder("Поиск...")
+	mw.searchEntry.OnChanged = func(query string) {
+		if query == "" {
+			mw.isSearching = false
+			mw.refreshTable()
+			return
+		}
+
+		results, err := mw.controller.Search(query)
+		if err != nil {
+			dialog.ShowError(err, mw.window)
+			return
+		}
+
+		mw.searchResults = results
+		mw.isSearching = true
+		mw.refreshTable()
+	}
+	return mw.searchEntry
+}
+
+func getPrintCommand(filename string) (*exec.Cmd, error) {
+	switch runtime.GOOS {
+	case "windows":
+		// Попробуем разные варианты для Windows
+		if path, err := exec.LookPath("AcroRd32.exe"); err == nil {
+			return exec.Command(path, "/t", filename), nil
+		}
+		if path, err := exec.LookPath("SumatraPDF.exe"); err == nil {
+			return exec.Command(path, "-print-to-default", filename), nil
+		}
+		return nil, errors.New("не найдена программа для печати PDF (установите Adobe Reader или SumatraPDF)")
+	case "darwin":
+		if path, err := exec.LookPath("lp"); err == nil {
+			return exec.Command(path, filename), nil
+		}
+		return nil, errors.New("команда 'lp' не найдена")
+	default: // Linux и другие UNIX
+		if path, err := exec.LookPath("lp"); err == nil {
+			return exec.Command(path, filename), nil
+		}
+		if path, err := exec.LookPath("evince"); err == nil {
+			return exec.Command(path, "-p", filename), nil
+		}
+		return nil, errors.New("не найдены команды 'lp' или 'evince'")
+	}
 }

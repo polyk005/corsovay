@@ -1,19 +1,19 @@
 ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
-1,Fire777,Kazan,Flame st. 7,89999993333,fire@mail.ru,Coal,0,0.00
-2,Wind,Ekaterinburg,Gusty rd. 22,89999994444,wind@mail.ru,Turbines,0,0.00
-3,Metal,Chelyabinsk,Steel st. 33,89999995555,metal@mail.ru,Ingots,0,0.00
-4,Wood,Arkhangelsk,Forest ln. 12,89999996666,wood@mail.ru,Planks,0,0.00
-5,Sand,Astrakhan,Desert blvd. 8,89999997777,sand@mail.ru,Grains,0,0.00
-6,Clay,Rostov,Pottery st. 17,89999998888,clay@mail.ru,Bricks,0,0.00
-7,Glass,Vladimir,Transparent st. 3,89999999999,glass@mail.ru,Panels,0,0.00
+18,Concrete,Yaroslavl,Solid st. 77,89999998899,concrete@mail.ru,Blocks,0,9000.00
+17,Paint,Voronezh,Colorful st. 26,89999993344,paint@mail.ru,Dye,0,0.00
+16,Glass,Vladimir,Transparent st. 3,89999999999,glass@mail.ru,Panels,0,0.00
+15,Oil,Ufa,Greasy st. 42,89999996677,oil@mail.ru,Lubricants,0,0.00
+14,Nails,Tula,Sharp st. 68,89999995566,nails@mail.ru,Fasteners,0,0.00
+13,Bricks,Smolensk,Square st. 94,89999990013,bricks@mail.ru,Masonry,0,540.00
+12,Clay,Rostov,Pottery st. 17,89999998888,clay@mail.ru,Bricks,0,6000.00
+11,Gas,Novosibirsk,Flammable st. 19,89999997788,gas@mail.ru,Fuel,0,0.00
+10,Rubber,Nizhny Novgorod,Bouncy st. 44,89999991122,rubber@mail.ru,Tires,0,0.00
+9,Wire,Kursk,Conductive st. 13,89999994455,wire@mail.ru,Cables,0,0.00
 8,Plastic,Krasnodar,Polymer st. 9,89999990000,plastic@mail.ru,Pipes,0,0.00
-9,Rubber,Nizhny Novgorod,Bouncy st. 44,89999991122,rubber@mail.ru,Tires,0,0.00
-10,Cement,Belgorod,Hard st. 51,89999992233,cement@mail.ru,Mix,0,0.00
-11,Paint,Voronezh,Colorful st. 26,89999993344,paint@mail.ru,Dye,0,0.00
-12,Wire,Kursk,Conductive st. 13,89999994455,wire@mail.ru,Cables,0,0.00
-13,Nails,Tula,Sharp st. 68,89999995566,nails@mail.ru,Fasteners,0,0.00
-14,Oil,Ufa,Greasy st. 42,89999996677,oil@mail.ru,Lubricants,0,0.00
-15,Gas,Novosibirsk,Flammable st. 19,89999997788,gas@mail.ru,Fuel,0,0.00
-16,Concrete,Yaroslavl,Solid st. 77,89999998899,concrete@mail.ru,Blocks,0,0.00
-17,Bricks,Smolensk,Square st. 94,89999990011,bricks@mail.ru,Masonry,0,0.00
-18,vnb,bhb,bjhb,8797676,vgvcv@mail.ru,fnjanjf,0,0.00
+7,Fire777,Kazan,Flame st. 7,89999993334,fire@mail.ru,Coal,0,0.00
+6,Wind,Ekaterinburg,Gusty rd. 22,89999994444,wind@mail.ru,Turbines,0,0.00
+5,Metal,Chelyabinsk,Steel st. 33,89999995555,metal@mail.ru,Ingots,0,0.00
+4,vnb,bhb,bjhb,8797676,vgvcv@mail.ru,fnjanjf,0,9000.00
+3,Cement,Belgorod,Hard st. 51,89999992233,cement@mail.ru,Mix,0,0.00
+2,Sand,Astrakhan,Desert blvd. 8,89999997777,sand@mail.ru,Grains,0,0.00
+1,Wood,Arkhangelsk,Forest ln. 12,89999996666,wood@mail.ru,Planks,0,2000.00
