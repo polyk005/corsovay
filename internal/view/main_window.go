@@ -33,6 +33,7 @@ type MainWindow struct {
 	searchEntry   *widget.Entry
 	searchResults []model.Manufacturer
 	isSearching   bool
+	recentFiles   *RecentFiles
 	currentSort   struct {
 		column    string
 		ascending bool
@@ -46,6 +47,17 @@ type MainWindow struct {
 	selectedRow    int
 }
 
+type RecentFiles struct {
+	files []string
+	max   int
+}
+
+func NewRecentFiles(max int) *RecentFiles {
+	return &RecentFiles{
+		max: max,
+	}
+}
+
 func NewMainWindow(app fyne.App, controller *controller.ManufacturerController, locale *localization.Locale) *MainWindow {
 	if controller == nil {
 		log.Fatal("Контроллер не инициализирован")
@@ -56,14 +68,20 @@ func NewMainWindow(app fyne.App, controller *controller.ManufacturerController, 
 	// Инициализация пустой базы данных
 	controller.NewDatabase()
 
-	return &MainWindow{
+	mw := &MainWindow{
 		app:            app,
 		window:         w,
 		controller:     controller,
 		locale:         locale,
 		currentFile:    "",
 		unsavedChanges: false,
+		recentFiles:    NewRecentFiles(10),
 	}
+
+	// Загружаем недавние файлы
+	mw.loadRecentFiles()
+
+	return mw
 }
 
 func (mw *MainWindow) setupMenu() *fyne.MainMenu {
@@ -128,11 +146,100 @@ func (mw *MainWindow) checkUnsavedChanges(callback func()) {
 	)
 }
 
-func (mw *MainWindow) Show() {
-	// Устанавливаем меню
-	mw.window.SetMainMenu(mw.setupMenu())
+func (mw *MainWindow) createManufacturersTab() *container.TabItem {
+	// Создание таблицы производителей
+	table := mw.createManufacturersTable()
 
-	// Инициализируем таблицу
+	return container.NewTabItem(
+		mw.locale.Translate("Manufacturers"),
+		container.NewScroll(table), // Обернем таблицу в прокручиваемый контейнер
+	)
+}
+
+func (mw *MainWindow) createRecentFilesTab() *widget.TabItem {
+	list := widget.NewList(
+		func() int {
+			return len(mw.recentFiles.Get())
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("template")
+		},
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			item.(*widget.Label).SetText(filepath.Base(mw.recentFiles.Get()[id]))
+		},
+	)
+
+	list.OnSelected = func(id widget.ListItemID) {
+		filePath := mw.recentFiles.Get()[id]
+		mw.checkUnsavedChanges(func() {
+			// Показываем индикатор загрузки
+			loading := dialog.NewProgress("Загрузка", "Открытие файла...", mw.window)
+			loading.Show()
+
+			// В Fyne v1 используем time.AfterFunc для обновления UI
+			go func() {
+				// Загрузка в фоновом потоке
+				err := mw.controller.LoadFromFile(filePath)
+
+				// Обновляем UI через time.AfterFunc
+				time.AfterFunc(100*time.Millisecond, func() {
+					loading.Hide()
+					if err != nil {
+						dialog.ShowError(err, mw.window)
+						return
+					}
+
+					mw.currentFile = filePath
+					mw.unsavedChanges = false
+
+					// Полностью пересоздаем таблицу
+					mw.table = mw.createManufacturersTable()
+
+					// Обновляем содержимое главного окна
+					mw.refreshMainContent()
+
+					mw.window.SetTitle("База производителей - " + filepath.Base(filePath))
+					mw.window.Content().Refresh()
+				})
+			}()
+		})
+	}
+
+	return widget.NewTabItem(
+		mw.locale.Translate("Recent Files"),
+		container.NewBorder(
+			widget.NewLabel(mw.locale.Translate("Select a recent file:")),
+			nil, nil, nil,
+			list,
+		),
+	)
+}
+
+// Добавляем новый метод для обновления основного содержимого
+func (mw *MainWindow) refreshMainContent() {
+	searchBox := container.NewVBox(
+		mw.setupSearch(),
+		widget.NewSeparator(),
+	)
+
+	// Создаем новое содержимое
+	newContent := container.NewBorder(
+		searchBox, nil, nil, nil,
+		container.NewScroll(mw.table),
+	)
+
+	// В Fyne v1 используем widget.TabContainer
+	if tabs, ok := mw.mainContainer.Objects[0].(*widget.TabContainer); ok {
+		if len(tabs.Items) > 0 {
+			tabs.Items[0].Content = newContent
+			tabs.SelectTab(tabs.Items[0]) // Выбираем первую вкладку
+			tabs.Refresh()
+		}
+	}
+}
+
+func (mw *MainWindow) Show() {
+	mw.window.SetMainMenu(mw.setupMenu())
 	mw.table = mw.createManufacturersTable()
 
 	// Создаем поисковую панель
@@ -141,25 +248,59 @@ func (mw *MainWindow) Show() {
 		widget.NewSeparator(),
 	)
 
-	// Собираем основной интерфейс
-	mw.mainContainer = container.NewBorder(
-		searchBox,                     // Верх - панель поиска
-		nil,                           // Низ (можно добавить статус бар)
-		nil,                           // Левая панель
-		nil,                           // Правая панель
-		container.NewScroll(mw.table), // Центр - таблица с прокруткой
+	// Основное содержимое вкладки Database
+	databaseContent := container.NewBorder(
+		searchBox, nil, nil, nil,
+		container.NewScroll(mw.table),
 	)
 
-	content := container.NewMax(mw.mainContainer)
+	// В Fyne v1 используем widget.NewTabContainer
+	tabs := widget.NewTabContainer(
+		widget.NewTabItem(mw.locale.Translate("Database"), databaseContent),
+		mw.createRecentFilesTab(),
+	)
 
-	// Настраиваем окно
+	mw.mainContainer = container.NewMax(tabs)
 	mw.window.SetContent(mw.mainContainer)
-	mw.window.SetContent(content)
 	mw.window.Resize(fyne.NewSize(1000, 600))
-	mw.window.SetFixedSize(false)
-
-	// Показываем окно (НЕ используем ShowAndRun!)
 	mw.window.ShowAndRun()
+}
+
+func (mw *MainWindow) loadRecentFiles() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+
+	appDir := filepath.Join(configDir, "ManufacturersDB")
+	os.MkdirAll(appDir, 0755)
+
+	filePath := filepath.Join(appDir, "recent_files.txt")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return
+	}
+
+	files := strings.Split(string(data), "\n")
+	for _, file := range files {
+		if file != "" {
+			mw.recentFiles.Add(file)
+		}
+	}
+}
+
+func (mw *MainWindow) saveRecentFiles() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+
+	appDir := filepath.Join(configDir, "ManufacturersDB")
+	os.MkdirAll(appDir, 0755)
+
+	filePath := filepath.Join(appDir, "recent_files.txt")
+	data := strings.Join(mw.recentFiles.Get(), "\n")
+	os.WriteFile(filePath, []byte(data), 0644)
 }
 
 // func (mw *MainWindow) onNew() {
@@ -186,6 +327,7 @@ func (mw *MainWindow) onOpen() {
 		defer reader.Close()
 
 		filePath := uriToPath(reader.URI())
+		mw.recentFiles.Add(filePath)
 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
 			dialog.ShowError(errors.New("выберите CSV файл"), mw.window)
 			return
@@ -1004,4 +1146,26 @@ func getPrintCommand(filename string) (*exec.Cmd, error) {
 		}
 		return nil, errors.New("не найдены команды 'lp' или 'evince'")
 	}
+}
+
+func (rf *RecentFiles) Add(file string) {
+	// Удаляем дубликаты
+	for i, f := range rf.files {
+		if f == file {
+			rf.files = append(rf.files[:i], rf.files[i+1:]...)
+			break
+		}
+	}
+
+	// Добавляем в начало
+	rf.files = append([]string{file}, rf.files...)
+
+	// Обрезаем если превышен лимит
+	if len(rf.files) > rf.max {
+		rf.files = rf.files[:rf.max]
+	}
+}
+
+func (rf *RecentFiles) Get() []string {
+	return rf.files
 }
