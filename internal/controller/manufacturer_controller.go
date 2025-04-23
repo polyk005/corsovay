@@ -8,6 +8,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -180,45 +181,6 @@ func (c *ManufacturerController) forceSaveToFile(filePath string) error {
 	return nil
 }
 
-func (c *ManufacturerController) loadFromFile(filePath string) []model.Manufacturer {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil
-	}
-
-	var manufacturers []model.Manufacturer
-	for i, record := range records {
-		if i == 0 { // Пропускаем заголовок
-			continue
-		}
-
-		id, _ := strconv.Atoi(record[0])
-		year, _ := strconv.Atoi(record[6])
-		revenue, _ := strconv.ParseFloat(record[7], 64)
-
-		manufacturers = append(manufacturers, model.Manufacturer{
-			ID:          id,
-			Name:        record[1],
-			Country:     record[2],
-			Address:     record[3],
-			Phone:       record[4],
-			Email:       record[5],
-			ProductType: record[6],
-			FoundedYear: year,
-			Revenue:     revenue,
-		})
-	}
-
-	return manufacturers
-}
-
 func (c *ManufacturerController) FileExists(filePath string) bool {
 	if _, err := os.Stat(filePath); err == nil {
 		return true
@@ -226,37 +188,45 @@ func (c *ManufacturerController) FileExists(filePath string) bool {
 	return false
 }
 
-func (c *ManufacturerController) LoadFromFile(filePath string) error {
+func (c *ManufacturerController) LoadFromFile(filePath string) ([]model.Manufacturer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("ошибка открытия файла: %v", err)
+		return nil, fmt.Errorf("ошибка открытия файла: %v", err) // Изменено на return nil, error
 	}
 	defer file.Close()
 
-	reader := csv.NewReader(file)
-	reader.Comma = ','
-	reader.FieldsPerRecord = 9 // Убедимся, что всегда 9 полей
+	// Создаем CSV reader
+	r := csv.NewReader(file)
+	r.Comma = ','             // Указываем разделитель
+	r.TrimLeadingSpace = true // Убираем пробелы в начале поля
 
-	records, err := reader.ReadAll()
+	// Читаем заголовок
+	header, err := r.Read()
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("ошибка чтения заголовка: %v", err) // Изменено на return nil, error
+	}
+	if len(header) != 9 {
+		return nil, fmt.Errorf("невалидный CSV-заголовок") // Изменено на return nil, error
 	}
 
 	var manufacturers []model.Manufacturer
-	for i, record := range records {
-		// Пропускаем заголовок
-		if i == 0 && strings.EqualFold(record[0], "ID") {
-			continue
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			continue // Пропускаем битые строки
 		}
 
-		// Проверяем количество полей
 		if len(record) != 9 {
 			continue
 		}
 
+		// Парсинг полей
 		id, _ := strconv.Atoi(record[0])
 		year, _ := strconv.Atoi(record[7])
 		revenue, _ := strconv.ParseFloat(record[8], 64)
@@ -276,7 +246,13 @@ func (c *ManufacturerController) LoadFromFile(filePath string) error {
 
 	c.manufacturers = manufacturers
 	c.currentFile = filePath
-	return nil
+	return manufacturers, nil // Возвращаем оба значения
+}
+
+func (c *ManufacturerController) GetCurrentData() []model.Manufacturer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.manufacturers
 }
 
 func (c *ManufacturerController) SaveToFile(filePath string) error {
@@ -325,6 +301,12 @@ func (c *ManufacturerController) SaveToFile(filePath string) error {
 
 	c.currentFile = filePath
 	return nil
+}
+
+func (c *ManufacturerController) UpdateManufacturers(data []model.Manufacturer) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.manufacturers = data
 }
 
 func (c *ManufacturerController) ExportToPDF(filePath string) error {

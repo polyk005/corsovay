@@ -179,7 +179,7 @@ func (mw *MainWindow) createRecentFilesTab() *widget.TabItem {
 			// В Fyne v1 используем time.AfterFunc для обновления UI
 			go func() {
 				// Загрузка в фоновом потоке
-				err := mw.controller.LoadFromFile(filePath)
+				_, err := mw.controller.LoadFromFile(filePath)
 
 				// Обновляем UI через time.AfterFunc
 				time.AfterFunc(100*time.Millisecond, func() {
@@ -336,7 +336,8 @@ func (mw *MainWindow) onOpen() {
 		// Сбрасываем текущее состояние
 		mw.controller.NewDatabase()
 
-		if err := mw.controller.LoadFromFile(filePath); err != nil {
+		// Изменено здесь - игнорируем первый возвращаемый параметр
+		if _, err := mw.controller.LoadFromFile(filePath); err != nil {
 			dialog.ShowError(err, mw.window)
 			return
 		}
@@ -742,115 +743,119 @@ func (mw *MainWindow) showNotification(message string) {
 }
 
 func (mw *MainWindow) refreshTable() {
-	// Убрали неиспользуемую переменную manufacturers
 	newTable := mw.createManufacturersTable()
 
-	// Используем time.AfterFunc для безопасного обновления UI
-	time.AfterFunc(50*time.Millisecond, func() {
-		if scroll, ok := mw.mainContainer.Objects[0].(*container.Scroll); ok {
-			scroll.Content = newTable
-			mw.table = newTable
-			scroll.Refresh()
+	time.AfterFunc(5*time.Millisecond, func() {
+		if tabs, ok := mw.mainContainer.Objects[0].(*widget.TabContainer); ok {
+			if len(tabs.Items) > 0 {
+				// Обновляем содержимое вкладки Database
+				if scroll, ok := tabs.Items[0].Content.(*container.Scroll); ok {
+					scroll.Content = newTable
+					mw.table = newTable
+					scroll.Refresh()
+				}
+				tabs.Refresh()
+			}
 		}
 		mw.window.Content().Refresh()
 	})
+	// mw.window.Canvas().SetContent(mw.createManufacturersTable()) //MAIN PROBLEMS если ее удалить то работать сортировка не будет но при этом она при очищение исчезает
+	mw.table = mw.createManufacturersTable()
+	mw.refreshMainContent()
 }
 
 func (mw *MainWindow) createManufacturersTable() *widget.Table {
 	var manufacturers []model.Manufacturer
-	var err error
-
 	if mw.isSearching {
 		manufacturers = mw.searchResults
 	} else {
-		manufacturers, err = mw.controller.GetAllManufacturers()
-		if err != nil {
-			dialog.ShowError(err, mw.window)
-			return widget.NewTable(nil, nil, nil)
-		}
+		manufacturers = mw.controller.GetCurrentData()
 	}
 
 	table := widget.NewTable(
 		func() (int, int) {
-			return len(manufacturers) + 1, 9 // +1 для заголовков, 9 столбцов
+			return len(manufacturers) + 1, 9
 		},
 		func() fyne.CanvasObject {
 			return widget.NewLabel("template")
 		},
 		func(tci widget.TableCellID, co fyne.CanvasObject) {
 			label := co.(*widget.Label)
-			if tci.Row == 0 { // Заголовки
-				headers := []string{
-					mw.locale.Translate("ID"),
-					mw.locale.Translate("Name"),
-					mw.locale.Translate("Country"),
-					mw.locale.Translate("Address"),
-					mw.locale.Translate("Phone"),
-					mw.locale.Translate("Email"),
-					mw.locale.Translate("Product Type"),
-					mw.locale.Translate("Founded Year"),
-					mw.locale.Translate("Revenue"),
+			if tci.Row == 0 {
+				// Заполняем заголовки
+				headers := []string{"Id", "Name", "Country", "Address", "Phone",
+					"Email", "Product Type", "Founded Year", "Revenue"}
+				if tci.Col < len(headers) {
+					label.SetText(headers[tci.Col])
 				}
-				label.SetText(headers[tci.Col])
-				label.TextStyle.Bold = true
 			} else if tci.Row-1 < len(manufacturers) {
+				// Заполняем данные
 				m := manufacturers[tci.Row-1]
-				values := []string{
-					fmt.Sprintf("%d", m.ID),
-					m.Name,
-					m.Country,
-					m.Address,
-					m.Phone,
-					m.Email,
-					m.ProductType,
-					fmt.Sprintf("%d", m.FoundedYear),
-					fmt.Sprintf("%.2f", m.Revenue),
+				switch tci.Col {
+				case 0:
+					label.SetText(fmt.Sprintf("%d", m.ID))
+				case 1:
+					label.SetText(m.Name)
+				case 2:
+					label.SetText(m.Country)
+				case 3:
+					label.SetText(m.Address)
+				case 4:
+					label.SetText(m.Phone)
+				case 5:
+					label.SetText(m.Email)
+				case 6:
+					label.SetText(m.ProductType)
+				case 7:
+					label.SetText(fmt.Sprintf("%d", m.FoundedYear))
+				case 8:
+					label.SetText(fmt.Sprintf("%.2f", m.Revenue))
 				}
-				label.SetText(values[tci.Col])
 			}
 		},
 	)
 
-	// Настройка ширины столбцов
 	table.SetColumnWidth(0, 50)  // ID
 	table.SetColumnWidth(1, 150) // Name
-	table.SetColumnWidth(2, 260) // Country
+	table.SetColumnWidth(2, 100) // Country
 	table.SetColumnWidth(3, 200) // Address
 	table.SetColumnWidth(4, 120) // Phone
 	table.SetColumnWidth(5, 180) // Email
-	table.SetColumnWidth(6, 180) // Product Type
-	table.SetColumnWidth(7, 180) // Founded Year
-	table.SetColumnWidth(8, 180) // Revenue
+	table.SetColumnWidth(6, 150) // Product Type
+	table.SetColumnWidth(7, 150) // Founded
+	table.SetColumnWidth(8, 100) // Revenue
 
-	// Обработчик сортировки
 	table.OnSelected = func(id widget.TableCellID) {
-		if id.Row == 0 {
+		if id.Row == 0 { // Сортировка по заголовку
 			columns := []string{"id", "name", "country", "address", "phone",
 				"email", "productType", "foundedYear", "revenue"}
+
 			if id.Col < len(columns) {
 				ascending := !mw.currentSort.ascending
-				var err error
+				var dataToSort []model.Manufacturer
 
 				if mw.isSearching {
-					mw.searchResults, err = mw.controller.Sort(mw.searchResults, columns[id.Col], ascending)
+					dataToSort = mw.searchResults
 				} else {
-					var all []model.Manufacturer
-					all, err = mw.controller.GetAllManufacturers()
-					if err == nil {
-						all, err = mw.controller.Sort(all, columns[id.Col], ascending)
-						if err == nil {
-							mw.controller.SetManufacturers(all)
-						}
-					}
+					dataToSort = mw.controller.GetCurrentData()
 				}
 
-				if err == nil {
-					mw.currentSort.column = columns[id.Col]
-					mw.currentSort.ascending = ascending
-					mw.refreshTable()
-				} else {
+				sorted, err := mw.controller.Sort(dataToSort, columns[id.Col], ascending)
+				if err != nil {
 					dialog.ShowError(err, mw.window)
+					return
 				}
+
+				if mw.isSearching {
+					mw.searchResults = sorted
+				} else {
+					// Для основного набора нужно обновить данные в контроллере
+					mw.controller.UpdateManufacturers(sorted)
+				}
+
+				mw.currentSort.column = columns[id.Col]
+				mw.currentSort.ascending = ascending
+				mw.refreshTable()
 			}
 		} else {
 			mw.selectedRow = id.Row
@@ -895,15 +900,6 @@ func (mw *MainWindow) updateWindowTitle() {
 func (mw *MainWindow) runInUI(f func()) {
 	// Самый надежный способ выполнить код в UI-потоке в Fyne 1.x
 	time.AfterFunc(10*time.Millisecond, func() {
-		f()
-		mw.window.Content().Refresh()
-	})
-}
-
-func (mw *MainWindow) runOnMainThread(f func()) {
-	log.Println("Запланировано выполнение в главном потоке")
-	time.AfterFunc(10*time.Millisecond, func() {
-		log.Println("Выполнение в главном потоке")
 		f()
 		mw.window.Content().Refresh()
 	})
@@ -1101,6 +1097,7 @@ func (mw *MainWindow) onShowChart() {
 func (mw *MainWindow) setupSearch() *widget.Entry {
 	mw.searchEntry = widget.NewEntry()
 	mw.searchEntry.SetPlaceHolder("Поиск...")
+
 	mw.searchEntry.OnChanged = func(query string) {
 		if query == "" {
 			mw.isSearching = false
@@ -1108,16 +1105,33 @@ func (mw *MainWindow) setupSearch() *widget.Entry {
 			return
 		}
 
-		results, err := mw.controller.Search(query)
-		if err != nil {
-			dialog.ShowError(err, mw.window)
+		// Получаем текущие данные
+		currentData := mw.controller.GetCurrentData()
+		if len(currentData) == 0 {
 			return
+		}
+
+		// Выполняем поиск по текущим данным
+		var results []model.Manufacturer
+		query = strings.ToLower(query)
+		// Полностью пересоздаем таблицу
+		mw.table = mw.createManufacturersTable()
+		for _, m := range currentData {
+			if strings.Contains(strings.ToLower(m.Name), query) ||
+				strings.Contains(strings.ToLower(m.Country), query) ||
+				strings.Contains(strings.ToLower(m.Address), query) ||
+				strings.Contains(m.Phone, query) ||
+				strings.Contains(strings.ToLower(m.Email), query) ||
+				strings.Contains(strings.ToLower(m.ProductType), query) {
+				results = append(results, m)
+			}
 		}
 
 		mw.searchResults = results
 		mw.isSearching = true
 		mw.refreshTable()
 	}
+
 	return mw.searchEntry
 }
 
