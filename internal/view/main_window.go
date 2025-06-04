@@ -1129,18 +1129,66 @@ func (mw *MainWindow) openPDF(filename string) {
 }
 
 func (mw *MainWindow) onShowChart() {
-	// Диалог выбора колонки для графика
-	columnSelect := widget.NewSelect([]string{"revenue", "foundedYear"}, nil)
-	columnSelect.SetSelected("revenue")
+	// Создаем селектор типа графика
+	chartTypeSelect := widget.NewSelect([]string{
+		mw.locale.Translate("Bar Chart - Revenue"),
+		mw.locale.Translate("Bar Chart - Founded Year"),
+		mw.locale.Translate("Pie Chart - Product Types"),
+		mw.locale.Translate("Line Chart - Revenue Trend"),
+	}, nil)
+	chartTypeSelect.SetSelected(mw.locale.Translate("Bar Chart - Revenue"))
+
+	// Создаем селектор цветовой схемы
+	colorSchemeSelect := widget.NewSelect([]string{
+		mw.locale.Translate("Default"),
+		mw.locale.Translate("Blue Theme"),
+		mw.locale.Translate("Green Theme"),
+		mw.locale.Translate("Rainbow"),
+	}, nil)
+	colorSchemeSelect.SetSelected(mw.locale.Translate("Default"))
+
+	// Создаем чекбокс для отображения значений
+	showValuesCheck := widget.NewCheck(mw.locale.Translate("Show Values"), nil)
+	showValuesCheck.SetChecked(true)
+
+	// Создаем чекбокс для сортировки данных
+	sortDataCheck := widget.NewCheck(mw.locale.Translate("Sort Data"), nil)
+	sortDataCheck.SetChecked(true)
 
 	// Кнопка генерации графика
-	generateBtn := widget.NewButton("Сгенерировать график", func() {
-		if columnSelect.Selected == "" {
-			dialog.ShowInformation("Ошибка", "Выберите колонку для графика", mw.window)
+	generateBtn := widget.NewButton(mw.locale.Translate("Generate Chart"), func() {
+		if chartTypeSelect.Selected == "" {
+			dialog.ShowInformation(
+				mw.locale.Translate("Error"),
+				mw.locale.Translate("Please select chart type"),
+				mw.window,
+			)
 			return
 		}
 
-		imgData, err := mw.controller.GenerateChart(columnSelect.Selected)
+		// Определяем тип данных для графика
+		var chartType string
+		switch chartTypeSelect.Selected {
+		case mw.locale.Translate("Bar Chart - Revenue"):
+			chartType = "revenue_bar"
+		case mw.locale.Translate("Bar Chart - Founded Year"):
+			chartType = "founded_bar"
+		case mw.locale.Translate("Pie Chart - Product Types"):
+			chartType = "product_pie"
+		case mw.locale.Translate("Line Chart - Revenue Trend"):
+			chartType = "revenue_line"
+		}
+
+		// Создаем параметры для графика
+		chartParams := map[string]interface{}{
+			"type":        chartType,
+			"colorScheme": colorSchemeSelect.Selected,
+			"showValues":  showValuesCheck.Checked,
+			"sortData":    sortDataCheck.Checked,
+		}
+
+		// Генерируем график
+		imgData, err := mw.controller.GenerateChart(chartParams)
 		if err != nil {
 			dialog.ShowError(err, mw.window)
 			return
@@ -1153,37 +1201,92 @@ func (mw *MainWindow) onShowChart() {
 			return
 		}
 
+		// Создаем новое окно для графика
+		chartWindow := mw.app.NewWindow(mw.locale.Translate("Chart View"))
+		
 		// Создаем и настраиваем изображение
 		chartImg := canvas.NewImageFromImage(img)
-		chartImg.FillMode = canvas.ImageFillOriginal
-		chartImg.SetMinSize(fyne.NewSize(10, 20))
+		chartImg.FillMode = canvas.ImageFillContain
+		chartImg.SetMinSize(fyne.NewSize(900, 600))
 
-		// Обновляем содержимое окна
-		if mw.chartWindow != nil {
-			mw.chartWindow.SetContent(container.NewScroll(chartImg))
-			mw.chartWindow.Canvas().Refresh(chartImg)
-		}
+		// Создаем скролл-контейнер и устанавливаем его размер
+		scrollContainer := container.NewScroll(chartImg)
+		scrollContainer.Resize(fyne.NewSize(20000, 20000))
 
+		// Создаем кнопку сохранения
+		saveButton := widget.NewButton(mw.locale.Translate("Save Chart"), func() {
+			saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+				if err != nil {
+					dialog.ShowError(err, chartWindow)
+					return
+				}
+				if writer == nil {
+					return
+				}
+				defer writer.Close()
+
+				filePath := uriToPath(writer.URI())
+				if !strings.HasSuffix(strings.ToLower(filePath), ".png") {
+					filePath += ".png"
+				}
+
+				if err := os.WriteFile(filePath, imgData, 0644); err != nil {
+					dialog.ShowError(err, chartWindow)
+					return
+				}
+
+				dialog.ShowInformation(
+					mw.locale.Translate("Success"),
+					mw.locale.Translate("Chart saved successfully"),
+					chartWindow,
+				)
+			}, chartWindow)
+
+			saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".png"}))
+			saveDialog.Show()
+		})
+
+		// Создаем контейнер для графика и кнопки
+		content := container.NewVBox(
+			scrollContainer,
+			saveButton,
+		)
+		content.Resize(fyne.NewSize(900, 650)) // Дополнительная высота для кнопки
+
+		chartWindow.SetContent(content)
+		chartWindow.Resize(fyne.NewSize(920, 700)) // Немного больше для рамок окна
+		chartWindow.Show()
+		chartWindow.CenterOnScreen()
 	})
 
 	// Создаем контейнер с элементами управления
 	controls := container.NewVBox(
-		widget.NewLabel("Выберите данные для графика:"),
-		columnSelect,
+		widget.NewLabel(mw.locale.Translate("Chart Settings")),
+		container.NewGridWithColumns(2,
+			widget.NewLabel(mw.locale.Translate("Chart Type:")),
+			chartTypeSelect,
+			widget.NewLabel(mw.locale.Translate("Color Scheme:")),
+			colorSchemeSelect,
+		),
+		container.NewHBox(
+			showValuesCheck,
+			sortDataCheck,
+		),
 		generateBtn,
 	)
 
-	// Создаем окно для графика (если еще не создано)
+	// Создаем окно для настроек графика (если еще не создано)
 	if mw.chartWindow == nil {
-		mw.chartWindow = mw.app.NewWindow("График производителей")
+		mw.chartWindow = mw.app.NewWindow(mw.locale.Translate("Chart Settings"))
+		mw.chartWindow.Resize(fyne.NewSize(400, 300))
 		mw.chartWindow.SetContent(controls)
-		mw.chartWindow.Resize(fyne.NewSize(850, 650)) // Используем стандартный NewSize из первой версии
 		mw.chartWindow.SetOnClosed(func() {
 			mw.chartWindow = nil
 		})
 	}
-
+	
 	mw.chartWindow.Show()
+	mw.chartWindow.CenterOnScreen()
 }
 
 func (mw *MainWindow) setupSearch() fyne.CanvasObject {

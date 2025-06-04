@@ -32,6 +32,12 @@ func main() {
 	repo := repository.NewManufacturerRepository("")
 	controller := controller.NewManufacturerController(repo)
 
+	// Загружаем локализацию для графиков
+	if err := controller.LoadLocalization("ru"); err != nil {
+		log.Printf("Ошибка загрузки локализации графиков: %v", err)
+		// Продолжаем работу, будут использованы значения по умолчанию
+	}
+
 	// Инициализация главного окна
 	mainWindow := view.NewMainWindow(myApp, controller, locale)
 	mainWindow.Show()

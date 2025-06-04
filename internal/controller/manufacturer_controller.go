@@ -6,8 +6,10 @@ import (
 	"cursovay/internal/repository"
 	"cursovay/internal/service"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"os"
 	"os/exec"
@@ -19,7 +21,10 @@ import (
 	"time"
 
 	"github.com/jung-kurt/gofpdf"
-	"github.com/wcharczuk/go-chart"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/vg"
+	"gonum.org/v1/plot/vg/draw"
 )
 
 type ManufacturerController struct {
@@ -27,6 +32,103 @@ type ManufacturerController struct {
 	manufacturers []model.Manufacturer
 	currentFile   string
 	mu            sync.RWMutex
+}
+
+// ColoredBox implements the plot.Thumbnailer interface for legend
+type ColoredBox struct {
+	Color color.Color
+}
+
+func (b *ColoredBox) Thumbnail(c *draw.Canvas) {
+	pts := []vg.Point{
+		{X: c.Min.X, Y: c.Min.Y},
+		{X: c.Min.X, Y: c.Max.Y},
+		{X: c.Max.X, Y: c.Max.Y},
+		{X: c.Max.X, Y: c.Min.Y},
+	}
+	c.FillPolygon(b.Color, pts)
+}
+
+// ChartLabels implements the plotter.XYLabeller interface
+type ChartLabels struct {
+	XYs    plotter.XYs
+	Labels []string
+}
+
+func (l ChartLabels) Len() int {
+	return len(l.XYs)
+}
+
+func (l ChartLabels) XY(i int) (x, y float64) {
+	return l.XYs[i].X, l.XYs[i].Y
+}
+
+func (l ChartLabels) Label(i int) string {
+	if i >= 0 && i < len(l.Labels) {
+		return l.Labels[i]
+	}
+	return ""
+}
+
+// ChartConfig содержит настройки для графиков
+type ChartConfig struct {
+	Width       vg.Length // в пикселях
+	Height      vg.Length // в пикселях
+	FontSize    vg.Length
+	BarWidth    vg.Length
+	MarginTop   vg.Length
+	MarginRight vg.Length
+	MarginLeft  vg.Length
+	MarginBot   vg.Length
+}
+
+// DefaultChartConfig возвращает конфигурацию по умолчанию
+func DefaultChartConfig() ChartConfig {
+	return ChartConfig{
+		Width:       600,
+		Height:      800,
+		FontSize:    12,
+		BarWidth:    20,
+		MarginTop:   10,
+		MarginRight: 10,
+		MarginLeft:  10,
+		MarginBot:   10,
+	}
+}
+
+// ChartLocalization содержит локализованные строки для графиков
+type ChartLocalization struct {
+	Title   string `json:"title"`
+	XLabel  string `json:"x_label,omitempty"`
+	YLabel  string `json:"y_label,omitempty"`
+}
+
+type ChartsLocalization struct {
+	RevenueBar    ChartLocalization `json:"revenue_bar"`
+	FoundedBar    ChartLocalization `json:"founded_bar"`
+	ProductPie    ChartLocalization `json:"product_pie"`
+	RevenueTrend  ChartLocalization `json:"revenue_trend"`
+}
+
+type Localization struct {
+	Charts ChartsLocalization `json:"charts"`
+}
+
+var currentLocalization Localization
+
+func (c *ManufacturerController) LoadLocalization(lang string) error {
+	file, err := os.Open(fmt.Sprintf("localization/%s.json", lang))
+	if err != nil {
+		return fmt.Errorf("failed to open localization file: %v", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&currentLocalization); err != nil {
+		return fmt.Errorf("failed to decode localization: %v", err)
+	}
+
+	return nil
 }
 
 func NewManufacturerController(repo *repository.ManufacturerRepository) *ManufacturerController {
@@ -385,56 +487,419 @@ func (c *ManufacturerController) Print() error {
 	return nil
 }
 
-func (c *ManufacturerController) GenerateChart(column string) ([]byte, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *ManufacturerController) GenerateChart(params map[string]interface{}) ([]byte, error) {
+	// Получаем параметры
+	chartType := params["type"].(string)
+	colorScheme := params["colorScheme"].(string)
+	showValues := params["showValues"].(bool)
+	sortData := params["sortData"].(bool)
 
-	// Подготавливаем данные для графика
-	var values []chart.Value
-	for _, m := range c.manufacturers {
-		var value float64
-		switch column {
-		case "revenue":
-			value = m.Revenue
-		case "foundedYear":
-			value = float64(m.FoundedYear)
-		default:
-			continue
+	// Получаем данные
+	manufacturers := c.GetCurrentData()
+	if len(manufacturers) == 0 {
+		return nil, fmt.Errorf("no data available")
+	}
+
+	switch chartType {
+	case "revenue_bar":
+		return c.generateRevenueBarChart(manufacturers, colorScheme, showValues, sortData)
+	case "founded_bar":
+		return c.generateFoundedYearBarChart(manufacturers, colorScheme, showValues, sortData)
+	case "product_pie":
+		return c.generateProductTypePieChart(manufacturers, colorScheme, showValues)
+	case "revenue_line":
+		return c.generateRevenueTrendChart(manufacturers, colorScheme, showValues, sortData)
+	default:
+		return nil, fmt.Errorf("unknown chart type: %s", chartType)
+	}
+}
+
+func (c *ManufacturerController) generateRevenueBarChart(manufacturers []model.Manufacturer, colorScheme string, showValues, sortData bool) ([]byte, error) {
+	config := DefaultChartConfig()
+	
+	// Создаем новый график
+	p := plot.New()
+	
+	// Устанавливаем размеры и отступы
+	p.X.Label.TextStyle.Font.Size = config.FontSize
+	p.Y.Label.TextStyle.Font.Size = config.FontSize
+	p.Title.TextStyle.Font.Size = config.FontSize + 2
+	p.Legend.TextStyle.Font.Size = config.FontSize - 2
+	
+	p.X.Label.Padding = config.MarginBot
+	p.Y.Label.Padding = config.MarginLeft
+	
+	// Устанавливаем заголовки из локализации
+	p.Title.Text = currentLocalization.Charts.RevenueBar.Title
+	p.X.Label.Text = currentLocalization.Charts.RevenueBar.XLabel
+	p.Y.Label.Text = currentLocalization.Charts.RevenueBar.YLabel
+
+	// Подготавливаем данные
+	var values []float64
+	var labels []string
+	for _, m := range manufacturers {
+		values = append(values, m.Revenue)
+		labels = append(labels, m.Name)
+	}
+
+	// Сортируем данные если нужно
+	if sortData {
+		// Создаем временный слайс для сортировки
+		type kv struct {
+			Value float64
+			Label string
 		}
-
-		// Ограничиваем длину названия для читаемости
-		name := m.Name
-		if len(name) > 15 {
-			name = name[:12] + "..."
+		sorted := make([]kv, len(values))
+		for i := range values {
+			sorted[i] = kv{values[i], labels[i]}
 		}
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Value > sorted[j].Value
+		})
+		// Обновляем исходные слайсы
+		for i := range sorted {
+			values[i] = sorted[i].Value
+			labels[i] = sorted[i].Label
+		}
+	}
 
-		values = append(values, chart.Value{
-			Label: name,
-			Value: value,
+	// Создаем столбчатый график
+	bars, err := plotter.NewBarChart(plotter.Values(values), vg.Points(20))
+	if err != nil {
+		return nil, err
+	}
+
+	// Применяем цветовую схему
+	switch colorScheme {
+	case "Blue Theme":
+		bars.Color = color.RGBA{0, 0, 255, 255}
+	case "Green Theme":
+		bars.Color = color.RGBA{0, 255, 0, 255}
+	case "Rainbow":
+		// В новой версии нет поддержки множества цветов для баров,
+		// поэтому используем один цвет
+		bars.Color = color.RGBA{255, 0, 0, 255}
+	}
+
+	// Добавляем значения если нужно
+	if showValues {
+		for i, v := range values {
+			labelXYs := plotter.XYs{{X: float64(i), Y: v}}
+			labels, err := plotter.NewLabels(&ChartLabels{
+				XYs:    labelXYs,
+				Labels: []string{fmt.Sprintf("%.2f", v)},
+			})
+			if err != nil {
+				return nil, err
+			}
+			p.Add(labels)
+		}
+	}
+
+	p.Add(bars)
+	p.NominalX(labels...)
+
+	// Сохраняем график в буфер с фиксированным размером
+	w := new(bytes.Buffer)
+	wt, err := p.WriterTo(config.Width, config.Height, "png")
+	if err != nil {
+		return nil, err
+	}
+	_, err = wt.WriteTo(w)
+	if err != nil {
+		return nil, err
+	}
+
+	return w.Bytes(), nil
+}
+
+func (c *ManufacturerController) generateFoundedYearBarChart(manufacturers []model.Manufacturer, colorScheme string, showValues, sortData bool) ([]byte, error) {
+	config := DefaultChartConfig()
+	
+	// Создаем новый график
+	p := plot.New()
+	
+	// Устанавливаем размеры и отступы
+	p.X.Label.TextStyle.Font.Size = config.FontSize
+	p.Y.Label.TextStyle.Font.Size = config.FontSize
+	p.Title.TextStyle.Font.Size = config.FontSize + 2
+	p.Legend.TextStyle.Font.Size = config.FontSize - 2
+	
+	p.X.Label.Padding = config.MarginBot
+	p.Y.Label.Padding = config.MarginLeft
+	
+	// Устанавливаем заголовки из локализации
+	p.Title.Text = currentLocalization.Charts.FoundedBar.Title
+	p.X.Label.Text = currentLocalization.Charts.FoundedBar.XLabel
+	p.Y.Label.Text = currentLocalization.Charts.FoundedBar.YLabel
+
+	// Подготавливаем данные
+	var values []float64
+	var labels []string
+	for _, m := range manufacturers {
+		values = append(values, float64(m.FoundedYear))
+		labels = append(labels, m.Name)
+	}
+
+	// Сортируем данные если нужно
+	if sortData {
+		type kv struct {
+			Value float64
+			Label string
+		}
+		sorted := make([]kv, len(values))
+		for i := range values {
+			sorted[i] = kv{values[i], labels[i]}
+		}
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Value < sorted[j].Value
+		})
+		for i := range sorted {
+			values[i] = sorted[i].Value
+			labels[i] = sorted[i].Label
+		}
+	}
+
+	// Создаем столбчатый график
+	bars, err := plotter.NewBarChart(plotter.Values(values), vg.Points(20))
+	if err != nil {
+		return nil, err
+	}
+
+	// Применяем цветовую схему
+	switch colorScheme {
+	case "Blue Theme":
+		bars.Color = color.RGBA{0, 0, 255, 255}
+	case "Green Theme":
+		bars.Color = color.RGBA{0, 255, 0, 255}
+	case "Rainbow":
+		bars.Color = color.RGBA{255, 0, 0, 255}
+	}
+
+	// Добавляем значения если нужно
+	if showValues {
+		for i, v := range values {
+			labelXYs := plotter.XYs{{X: float64(i), Y: v}}
+			labels, err := plotter.NewLabels(&ChartLabels{
+				XYs:    labelXYs,
+				Labels: []string{fmt.Sprintf("%.0f", v)},
+			})
+			if err != nil {
+				return nil, err
+			}
+			p.Add(labels)
+		}
+	}
+
+	p.Add(bars)
+	p.NominalX(labels...)
+
+	// Сохраняем график в буфер с фиксированным размером
+	w := new(bytes.Buffer)
+	wt, err := p.WriterTo(config.Width, config.Height, "png")
+	if err != nil {
+		return nil, err
+	}
+	_, err = wt.WriteTo(w)
+	if err != nil {
+		return nil, err
+	}
+
+	return w.Bytes(), nil
+}
+
+func (c *ManufacturerController) generateProductTypePieChart(manufacturers []model.Manufacturer, colorScheme string, showValues bool) ([]byte, error) {
+	config := DefaultChartConfig()
+	// Для круговой диаграммы используем квадратный размер
+	if config.Width > config.Height {
+		config.Width = config.Height
+	} else {
+		config.Height = config.Width
+	}
+	
+	// Создаем новый график
+	p := plot.New()
+	
+	// Устанавливаем размеры и отступы
+	p.Title.TextStyle.Font.Size = config.FontSize + 2
+	p.Legend.TextStyle.Font.Size = config.FontSize - 2
+	
+	// Устанавливаем заголовки из локализации
+	p.Title.Text = currentLocalization.Charts.ProductPie.Title
+
+	// Создаем карту для подсчета количества каждого типа продукции
+	productCounts := make(map[string]float64)
+	for _, m := range manufacturers {
+		productCounts[m.ProductType]++
+	}
+
+	// Создаем данные для круговой диаграммы
+	var values plotter.Values
+	var labels []string
+
+	// Создаем слайсы для сортировки
+	type kv struct {
+		Key   string
+		Value float64
+	}
+	var sorted []kv
+	for k, v := range productCounts {
+		sorted = append(sorted, kv{k, v})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Value > sorted[j].Value
+	})
+
+	// Добавляем секторы
+	colors := []color.Color{
+		color.RGBA{255, 0, 0, 255},
+		color.RGBA{0, 255, 0, 255},
+		color.RGBA{0, 0, 255, 255},
+		color.RGBA{255, 255, 0, 255},
+		color.RGBA{255, 0, 255, 255},
+		color.RGBA{0, 255, 255, 255},
+	}
+
+	total := 0.0
+	for _, item := range sorted {
+		total += item.Value
+	}
+
+	for i, item := range sorted {
+		value := item.Value
+		percentage := value / total
+		values = append(values, percentage)
+		labels = append(labels, item.Key)
+		colorIndex := i % len(colors)
+		if showValues {
+			label := fmt.Sprintf("%s\n%.1f%%", item.Key, percentage*100)
+			// Create a custom legend entry with a colored box
+			p.Legend.Add(label, &ColoredBox{
+				Color: colors[colorIndex],
+			})
+		}
+	}
+
+	// Создаем круговую диаграмму
+	pie, err := plotter.NewBarChart(values, vg.Points(20))
+	if err != nil {
+		return nil, err
+	}
+	pie.Color = color.RGBA{0, 0, 255, 255}
+
+	p.Add(pie)
+	p.NominalX(labels...)
+
+	// Сохраняем график в буфер с фиксированным размером
+	w := new(bytes.Buffer)
+	wt, err := p.WriterTo(config.Width, config.Height, "png")
+	if err != nil {
+		return nil, err
+	}
+	_, err = wt.WriteTo(w)
+	if err != nil {
+		return nil, err
+	}
+
+	return w.Bytes(), nil
+}
+
+func (c *ManufacturerController) generateRevenueTrendChart(manufacturers []model.Manufacturer, colorScheme string, showValues, sortData bool) ([]byte, error) {
+	config := DefaultChartConfig()
+	// Для графика тренда делаем более широкий размер
+	config.Width = 800
+	config.Height = 600
+	
+	// Создаем новый график
+	p := plot.New()
+	
+	// Устанавливаем размеры и отступы
+	p.X.Label.TextStyle.Font.Size = config.FontSize
+	p.Y.Label.TextStyle.Font.Size = config.FontSize
+	p.Title.TextStyle.Font.Size = config.FontSize + 2
+	p.Legend.TextStyle.Font.Size = config.FontSize - 2
+	
+	p.X.Label.Padding = config.MarginBot
+	p.Y.Label.Padding = config.MarginLeft
+	
+	// Устанавливаем заголовки из локализации
+	p.Title.Text = currentLocalization.Charts.RevenueTrend.Title
+	p.X.Label.Text = currentLocalization.Charts.RevenueTrend.XLabel
+	p.Y.Label.Text = currentLocalization.Charts.RevenueTrend.YLabel
+
+	// Создаем точки для графика
+	pts := make(plotter.XYs, len(manufacturers))
+	for i, m := range manufacturers {
+		pts[i].X = float64(m.FoundedYear)
+		pts[i].Y = m.Revenue
+	}
+
+	// Сортируем точки по году основания если нужно
+	if sortData {
+		sort.Slice(pts, func(i, j int) bool {
+			return pts[i].X < pts[j].X
 		})
 	}
 
-	// Создаем график
-	graph := chart.BarChart{
-		Title: "Manufacturers by " + column,
-		Background: chart.Style{
-			Padding: chart.Box{
-				Top: 40,
-			},
-		},
-		Height:   512,
-		BarWidth: 60,
-		Bars:     values,
-	}
-
-	// Рендерим в буфер
-	buffer := bytes.NewBuffer([]byte{})
-	err := graph.Render(chart.PNG, buffer)
+	// Создаем линейный график
+	line, err := plotter.NewLine(pts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to render chart: %v", err)
+		return nil, err
 	}
 
-	return buffer.Bytes(), nil
+	// Создаем точки на графике
+	scatter, err := plotter.NewScatter(pts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Применяем цветовую схему
+	switch colorScheme {
+	case "Blue Theme":
+		line.Color = color.RGBA{0, 0, 255, 255}
+		scatter.Color = color.RGBA{0, 0, 200, 255}
+	case "Green Theme":
+		line.Color = color.RGBA{0, 255, 0, 255}
+		scatter.Color = color.RGBA{0, 200, 0, 255}
+	case "Rainbow":
+		line.Color = color.RGBA{255, 0, 0, 255}
+		scatter.Color = color.RGBA{0, 0, 255, 255}
+	default:
+		line.Color = color.RGBA{0, 0, 0, 255}
+		scatter.Color = color.RGBA{0, 0, 0, 255}
+	}
+
+	// Добавляем значения если нужно
+	if showValues {
+		labelStrings := make([]string, len(pts))
+		for i := range pts {
+			labelStrings[i] = fmt.Sprintf("%.2f", pts[i].Y)
+		}
+		labels, err := plotter.NewLabels(&ChartLabels{
+			XYs:    pts,
+			Labels: labelStrings,
+		})
+		if err != nil {
+			return nil, err
+		}
+		p.Add(labels)
+	}
+
+	p.Add(line, scatter)
+	p.Add(plotter.NewGrid())
+
+	// Сохраняем график в буфер с фиксированным размером
+	w := new(bytes.Buffer)
+	wt, err := p.WriterTo(config.Width, config.Height, "png")
+	if err != nil {
+		return nil, err
+	}
+	_, err = wt.WriteTo(w)
+	if err != nil {
+		return nil, err
+	}
+
+	return w.Bytes(), nil
 }
 
 func (c *ManufacturerController) Sort(manufacturers []model.Manufacturer, column string, ascending bool) ([]model.Manufacturer, error) {
