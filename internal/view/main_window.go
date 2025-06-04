@@ -23,6 +23,7 @@ import (
 	"fyne.io/fyne/dialog"
 	"fyne.io/fyne/storage"
 	"fyne.io/fyne/widget"
+	"fyne.io/fyne/theme"
 )
 
 type MainWindow struct {
@@ -31,6 +32,7 @@ type MainWindow struct {
 	table         *widget.Table
 	chartWindow   fyne.Window
 	searchEntry   *widget.Entry
+	searchWindow  fyne.Window // Новое поле для окна поиска
 	searchResults []model.Manufacturer
 	isSearching   bool
 	recentFiles   *RecentFiles
@@ -64,6 +66,7 @@ func NewMainWindow(app fyne.App, controller *controller.ManufacturerController, 
 	}
 
 	w := app.NewWindow(locale.Translate("База данных производителей"))
+	w.Resize(fyne.NewSize(1400, 800)) // Начальный размер окна
 
 	// Инициализация пустой базы данных
 	controller.NewDatabase()
@@ -262,7 +265,7 @@ func (mw *MainWindow) Show() {
 
 	mw.mainContainer = container.NewMax(tabs)
 	mw.window.SetContent(mw.mainContainer)
-	mw.window.Resize(fyne.NewSize(1000, 600))
+	mw.window.Resize(fyne.NewSize(1400, 800))
 	mw.window.ShowAndRun()
 }
 
@@ -345,6 +348,7 @@ func (mw *MainWindow) onOpen() {
 		mw.currentFile = filePath
 		mw.unsavedChanges = false
 		mw.refreshTable()
+		mw.refreshSearchStyle() // Обновляем стиль поиска после загрузки файла
 		mw.window.SetTitle("База производителей - " + filepath.Base(filePath))
 	}, mw.window)
 
@@ -538,8 +542,69 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 	emailEntry := widget.NewEntry()
 	emailEntry.SetText(manufacturer.Email)
 
+	// Получаем список существующих типов продукции
+	productTypes := mw.controller.GetUniqueProductTypes()
+	
+	// Создаем элементы формы
+	formItems := []*widget.FormItem{
+		{Text: mw.locale.Translate("Name"), Widget: nameEntry},
+		{Text: mw.locale.Translate("Country"), Widget: countryEntry},
+		{Text: mw.locale.Translate("Address"), Widget: addressEntry},
+		{Text: mw.locale.Translate("Phone"), Widget: phoneEntry},
+		{Text: mw.locale.Translate("Email"), Widget: emailEntry},
+	}
+
+	// Создаем виджеты для типа продукции
 	productTypeEntry := widget.NewEntry()
 	productTypeEntry.SetText(manufacturer.ProductType)
+	
+	var productTypeSelect *widget.Select
+	var productTypeContainer *fyne.Container
+	var useExistingType bool
+
+	if len(productTypes) > 0 {
+		// Создаем выпадающий список с существующими типами
+		productTypeSelect = widget.NewSelect(productTypes, nil)
+		if manufacturer.ProductType != "" && contains(productTypes, manufacturer.ProductType) {
+			productTypeSelect.SetSelected(manufacturer.ProductType)
+			useExistingType = true
+		}
+
+		// Создаем радио-кнопки для выбора режима
+		radioGroup := widget.NewRadioGroup(
+			[]string{
+				mw.locale.Translate("Use Existing Type"),
+				mw.locale.Translate("Add New Type"),
+			},
+			func(selected string) {
+				useExistingType = selected == mw.locale.Translate("Use Existing Type")
+				if useExistingType {
+					productTypeContainer.Objects[0] = productTypeSelect
+				} else {
+					productTypeContainer.Objects[0] = productTypeEntry
+				}
+				productTypeContainer.Refresh()
+			},
+		)
+
+		// Добавляем радио-группу в форму
+		formItems = append(formItems, &widget.FormItem{
+			Text:   mw.locale.Translate("Product Type Selection"),
+			Widget: radioGroup,
+		})
+
+		// Инициализируем контейнер с правильным виджетом
+		if useExistingType {
+			productTypeContainer = container.NewHBox(productTypeSelect)
+			radioGroup.SetSelected(mw.locale.Translate("Use Existing Type"))
+		} else {
+			productTypeContainer = container.NewHBox(productTypeEntry)
+			radioGroup.SetSelected(mw.locale.Translate("Add New Type"))
+		}
+	} else {
+		// Если нет существующих типов, показываем только поле ввода
+		productTypeContainer = container.NewHBox(productTypeEntry)
+	}
 
 	foundedYearEntry := widget.NewEntry()
 	foundedYearEntry.SetText(fmt.Sprintf("%d", manufacturer.FoundedYear))
@@ -547,17 +612,15 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 	revenueEntry := widget.NewEntry()
 	revenueEntry.SetText(fmt.Sprintf("%.2f", manufacturer.Revenue))
 
+	// Добавляем оставшиеся поля формы
+	formItems = append(formItems,
+		&widget.FormItem{Text: mw.locale.Translate("Product Type"), Widget: productTypeContainer},
+		&widget.FormItem{Text: mw.locale.Translate("Founded Year"), Widget: foundedYearEntry},
+		&widget.FormItem{Text: mw.locale.Translate("Revenue"), Widget: revenueEntry},
+	)
+
 	form := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: mw.locale.Translate("Name"), Widget: nameEntry},
-			{Text: mw.locale.Translate("Country"), Widget: countryEntry},
-			{Text: mw.locale.Translate("Address"), Widget: addressEntry},
-			{Text: mw.locale.Translate("Phone"), Widget: phoneEntry},
-			{Text: mw.locale.Translate("Email"), Widget: emailEntry},
-			{Text: mw.locale.Translate("Product Type"), Widget: productTypeEntry},
-			{Text: mw.locale.Translate("Founded Year"), Widget: foundedYearEntry},
-			{Text: mw.locale.Translate("Revenue"), Widget: revenueEntry},
-		},
+		Items: formItems,
 		OnSubmit: func() {
 			// Валидация данных
 			if nameEntry.Text == "" {
@@ -565,17 +628,28 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 				return
 			}
 
-			var firstErr error
-
-			year, firstErr := strconv.Atoi(foundedYearEntry.Text)
-			if firstErr != nil {
+			year, yearErr := strconv.Atoi(foundedYearEntry.Text)
+			if yearErr != nil {
 				dialog.ShowError(errors.New(mw.locale.Translate("Invalid year format")), mw.window)
 				return
 			}
 
-			revenue, firstErr := strconv.ParseFloat(revenueEntry.Text, 64)
-			if firstErr != nil {
+			revenue, revenueErr := strconv.ParseFloat(revenueEntry.Text, 64)
+			if revenueErr != nil {
 				dialog.ShowError(errors.New(mw.locale.Translate("Invalid revenue format")), mw.window)
+				return
+			}
+
+			// Получаем значение типа продукции
+			var productType string
+			if len(productTypes) > 0 && useExistingType && productTypeSelect.Selected != "" {
+				productType = productTypeSelect.Selected
+			} else {
+				productType = productTypeEntry.Text
+			}
+
+			if productType == "" {
+				dialog.ShowError(errors.New(mw.locale.Translate("Product type cannot be empty")), mw.window)
 				return
 			}
 
@@ -585,7 +659,7 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 			manufacturer.Address = addressEntry.Text
 			manufacturer.Phone = phoneEntry.Text
 			manufacturer.Email = emailEntry.Text
-			manufacturer.ProductType = productTypeEntry.Text
+			manufacturer.ProductType = productType
 			manufacturer.FoundedYear = year
 			manufacturer.Revenue = revenue
 
@@ -628,6 +702,16 @@ func (mw *MainWindow) showEditDialog(manufacturer *model.Manufacturer, isNew boo
 		},
 		mw.window,
 	)
+}
+
+// Вспомогательная функция для проверки наличия строки в слайсе
+func contains(slice []string, str string) bool {
+	for _, v := range slice {
+		if v == str {
+			return true
+		}
+	}
+	return false
 }
 
 func (mw *MainWindow) onDeleteWithConfirmation(id int) {
@@ -757,10 +841,17 @@ func (mw *MainWindow) refreshTable() {
 				tabs.Refresh()
 			}
 		}
+		
+		// Принудительно обновляем поле поиска и его контейнер
+		if mw.searchEntry != nil {
+			mw.window.Canvas().Refresh(mw.searchEntry)
+		}
+		
 		mw.window.Content().Refresh()
 	})
-	// mw.window.Canvas().SetContent(mw.createManufacturersTable()) //MAIN PROBLEMS если ее удалить то работать сортировка не будет но при этом она при очищение исчезает
-	mw.table = mw.createManufacturersTable()
+	
+	// Важно для работы сортировки
+	mw.table = newTable
 	mw.refreshMainContent()
 }
 
@@ -815,15 +906,16 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 		},
 	)
 
-	table.SetColumnWidth(0, 50)  // ID
-	table.SetColumnWidth(1, 150) // Name
-	table.SetColumnWidth(2, 100) // Country
-	table.SetColumnWidth(3, 200) // Address
-	table.SetColumnWidth(4, 120) // Phone
-	table.SetColumnWidth(5, 180) // Email
-	table.SetColumnWidth(6, 150) // Product Type
-	table.SetColumnWidth(7, 150) // Founded
-	table.SetColumnWidth(8, 100) // Revenue
+	// Настраиваем размеры столбцов
+	table.SetColumnWidth(0, 60)   // ID
+	table.SetColumnWidth(1, 180)  // Name
+	table.SetColumnWidth(2, 150)  // Country
+	table.SetColumnWidth(3, 200)  // Address
+	table.SetColumnWidth(4, 120)  // Phone
+	table.SetColumnWidth(5, 180)  // Email
+	table.SetColumnWidth(6, 150)  // Product Type
+	table.SetColumnWidth(7, 120)  // Founded Year
+	table.SetColumnWidth(8, 150)  // Revenue
 
 	table.OnSelected = func(id widget.TableCellID) {
 		if id.Row == 0 { // Сортировка по заголовку
@@ -1094,13 +1186,48 @@ func (mw *MainWindow) onShowChart() {
 	mw.chartWindow.Show()
 }
 
-func (mw *MainWindow) setupSearch() *widget.Entry {
-	mw.searchEntry = widget.NewEntry()
-	mw.searchEntry.SetPlaceHolder("Поиск...")
+func (mw *MainWindow) setupSearch() fyne.CanvasObject {
+	// Создаем кнопку поиска
+	searchButton := widget.NewButtonWithIcon(mw.locale.Translate("Search"), theme.SearchIcon(), func() {
+		mw.showSearchWindow()
+	})
+	searchButton.Resize(fyne.NewSize(120, 40))
 
-	mw.searchEntry.OnChanged = func(query string) {
+	return container.NewPadded(searchButton)
+}
+
+func (mw *MainWindow) showSearchWindow() {
+	// Если окно уже существует, показываем его
+	if mw.searchWindow != nil {
+		mw.searchWindow.Show()
+		return
+	}
+
+	// Создаем новое окно для поиска
+	mw.searchWindow = mw.app.NewWindow(mw.locale.Translate("Search Manufacturers"))
+	mw.searchWindow.Resize(fyne.NewSize(400, 500))
+
+	// Создаем поле поиска
+	searchEntry := widget.NewEntry()
+	searchEntry.SetPlaceHolder(mw.locale.Translate("Enter search text..."))
+	mw.searchEntry = searchEntry
+
+	// Создаем метку для отображения текущего поискового запроса
+	searchLabel := widget.NewLabel("")
+	
+	// Создаем список для отображения результатов
+	resultsList := widget.NewTextGrid()
+
+	// Обработчик изменения текста
+	searchEntry.OnChanged = func(query string) {
+		// Обновляем метку с текущим поисковым запросом
+		searchLabel.SetText(mw.locale.Translate("Current search: ") + query)
+		searchLabel.Refresh()
+
 		if query == "" {
 			mw.isSearching = false
+			mw.searchResults = nil
+			resultsList.SetText("")
 			mw.refreshTable()
 			return
 		}
@@ -1111,28 +1238,76 @@ func (mw *MainWindow) setupSearch() *widget.Entry {
 			return
 		}
 
-		// Выполняем поиск по текущим данным
+		// Выполняем поиск
 		var results []model.Manufacturer
 		query = strings.ToLower(query)
-		// Полностью пересоздаем таблицу
-		mw.table = mw.createManufacturersTable()
 		for _, m := range currentData {
 			if strings.Contains(strings.ToLower(m.Name), query) ||
 				strings.Contains(strings.ToLower(m.Country), query) ||
 				strings.Contains(strings.ToLower(m.Address), query) ||
 				strings.Contains(m.Phone, query) ||
 				strings.Contains(strings.ToLower(m.Email), query) ||
-				strings.Contains(strings.ToLower(m.ProductType), query) {
+				strings.Contains(strings.ToLower(m.ProductType), query) ||
+				strings.Contains(fmt.Sprintf("%d", m.FoundedYear), query) ||
+				strings.Contains(fmt.Sprintf("%.2f", m.Revenue), query) {
 				results = append(results, m)
 			}
 		}
+
+		// Формируем текст для отображения результатов
+		var resultsText strings.Builder
+		for _, m := range results {
+			resultsText.WriteString(fmt.Sprintf("Name: %s\nCountry: %s\nProduct: %s\n\n",
+				m.Name, m.Country, m.ProductType))
+		}
+		
+		// Обновляем список результатов
+		resultsList.SetText(resultsText.String())
+		resultsList.Refresh()
 
 		mw.searchResults = results
 		mw.isSearching = true
 		mw.refreshTable()
 	}
 
-	return mw.searchEntry
+	// Создаем кнопку закрытия
+	closeButton := widget.NewButton(mw.locale.Translate("Close"), func() {
+		mw.searchWindow.Hide()
+	})
+
+	// Создаем кнопку очистки
+	clearButton := widget.NewButton(mw.locale.Translate("Clear"), func() {
+		searchEntry.SetText("")
+		searchLabel.SetText("")
+		resultsList.SetText("")
+		mw.isSearching = false
+		mw.searchResults = nil
+		mw.refreshTable()
+	})
+
+	// Создаем контейнер с элементами
+	content := container.NewVBox(
+		searchEntry,
+		searchLabel,
+		container.NewHBox(clearButton, closeButton),
+		widget.NewSeparator(),
+		container.NewScroll(resultsList),
+	)
+
+	mw.searchWindow.SetContent(content)
+	mw.searchWindow.Show()
+
+	// Устанавливаем обработчик закрытия окна
+	mw.searchWindow.SetOnClosed(func() {
+		mw.searchWindow = nil
+	})
+}
+
+// Обновляем метод refreshSearchStyle без использования TextStyle
+func (mw *MainWindow) refreshSearchStyle() {
+	if mw.searchEntry != nil {
+		mw.searchEntry.Refresh()
+	}
 }
 
 func getPrintCommand(filename string) (*exec.Cmd, error) {

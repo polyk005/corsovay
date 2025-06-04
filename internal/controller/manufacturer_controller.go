@@ -26,7 +26,7 @@ type ManufacturerController struct {
 	service       *service.ManufacturerService
 	manufacturers []model.Manufacturer
 	currentFile   string
-	mu            sync.Mutex
+	mu            sync.RWMutex
 }
 
 func NewManufacturerController(repo *repository.ManufacturerRepository) *ManufacturerController {
@@ -34,7 +34,7 @@ func NewManufacturerController(repo *repository.ManufacturerRepository) *Manufac
 		service:       service.NewManufacturerService(repo),
 		manufacturers: []model.Manufacturer{},
 		currentFile:   "",
-		mu:            sync.Mutex{},
+		mu:            sync.RWMutex{},
 	}
 }
 
@@ -250,8 +250,8 @@ func (c *ManufacturerController) LoadFromFile(filePath string) ([]model.Manufact
 }
 
 func (c *ManufacturerController) GetCurrentData() []model.Manufacturer {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.manufacturers
 }
 
@@ -670,4 +670,31 @@ func (c *ManufacturerController) GetPrintableData() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// GetUniqueProductTypes возвращает список уникальных типов продукции
+func (c *ManufacturerController) GetUniqueProductTypes() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Используем map для хранения уникальных значений
+	uniqueTypes := make(map[string]bool)
+	
+	// Собираем все уникальные типы продукции
+	for _, m := range c.manufacturers {
+		if m.ProductType != "" {
+			uniqueTypes[m.ProductType] = true
+		}
+	}
+
+	// Преобразуем map в slice
+	result := make([]string, 0, len(uniqueTypes))
+	for productType := range uniqueTypes {
+		result = append(result, productType)
+	}
+
+	// Сортируем результат для удобства использования
+	sort.Strings(result)
+
+	return result
 }

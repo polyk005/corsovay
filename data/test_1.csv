@@ -14,3 +14,4 @@ ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
 13,Clay,Rostov,Pottery st. 17,89999998888,clay@mail.ru,Bricks,1994,6000.00
 14,Cement,Belgorod,Hard st. 51,89999992233,cement@mail.ru,Mix,2021,0.00
 15,Bricks,Smolensk,Square st. 94,89999990013,bricks@mail.ru,Masonry,0,540.00
+16,Moscows,Russian,Moscow,8909,rbhb05@mail.ru,Pipes,2015,129000.00
