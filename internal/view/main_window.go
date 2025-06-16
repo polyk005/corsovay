@@ -94,7 +94,7 @@ func (mw *MainWindow) setupMenu() *fyne.MainMenu {
 		fyne.NewMenuItem(mw.locale.Translate("Save"), mw.onSave),
 		fyne.NewMenuItem(mw.locale.Translate("Save As"), mw.onSaveAsWithPrompt),
 		fyne.NewMenuItem(mw.locale.Translate("Export to PDF"), mw.onExportPDF),
-		fyne.NewMenuItem(mw.locale.Translate("Print"), mw.onPrint),
+		fyne.NewMenuItem(mw.locale.Translate("Export to JSON"), mw.onExportJSON),
 		fyne.NewMenuItem(mw.locale.Translate("Exit"), func() {
 			mw.checkUnsavedChanges(func() {
 				mw.app.Quit()
@@ -1032,100 +1032,43 @@ func (mw *MainWindow) onExportPDF() {
 	saveDialog.Show()
 }
 
-func (mw *MainWindow) onPrint() {
-	progress := dialog.NewProgress("Подготовка к печати", "Формирование документа...", mw.window)
-	progress.Show()
-
-	go func() {
-		defer progress.Hide()
-
-		pdfData, err := mw.controller.GetPrintableData()
+func (mw *MainWindow) onExportJSON() {
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil {
-			mw.runInUI(func() {
-				dialog.ShowError(err, mw.window)
-			})
+			dialog.ShowError(err, mw.window)
 			return
 		}
-
-		tmpFile, err := os.CreateTemp("", "print_*.pdf")
-		if err != nil {
-			mw.runInUI(func() {
-				dialog.ShowError(err, mw.window)
-			})
+		if writer == nil {
 			return
 		}
-		defer os.Remove(tmpFile.Name())
+		defer writer.Close()
 
-		if _, err := tmpFile.Write(pdfData); err != nil {
-			mw.runInUI(func() {
-				dialog.ShowError(err, mw.window)
-			})
-			return
+		filePath := uriToPath(writer.URI())
+		if !strings.HasSuffix(strings.ToLower(filePath), ".json") {
+			filePath += ".json"
 		}
-		tmpFile.Close()
 
-		mw.runInUI(func() {
-			// Предложим выбор: печать или просмотр
-			dialog.ShowCustomConfirm(
-				"Печать документа",
-				"Печать",
-				"Просмотр",
-				container.NewVBox(
-					widget.NewLabel("Выберите действие с документом:"),
-					widget.NewLabel(tmpFile.Name()),
-				),
-				func(print bool) {
-					if print {
-						mw.printPDF(tmpFile.Name())
-					} else {
-						mw.openPDF(tmpFile.Name())
-					}
-				},
-				mw.window,
-			)
-		})
-	}()
-}
+		progress := dialog.NewProgress(mw.locale.Translate("Export"), mw.locale.Translate("Exporting to JSON..."), mw.window)
+		progress.Show()
 
-func (mw *MainWindow) printPDF(filename string) {
-	var cmd *exec.Cmd
+		go func() {
+			defer progress.Hide()
 
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "mshtml.dll", "PrintHTML", "file:"+filename)
-	case "darwin":
-		cmd = exec.Command("lp", filename)
-	default: // linux и другие unix-системы
-		cmd = exec.Command("lp", filename)
-	}
+			if err := mw.controller.ExportToJSON(filePath); err != nil {
+				mw.runInUI(func() {
+					dialog.ShowError(fmt.Errorf("export failed: %v", err), mw.window)
+				})
+				return
+			}
 
-	if err := cmd.Run(); err != nil {
-		dialog.ShowError(fmt.Errorf("ошибка печати: %v", err), mw.window)
-		return
-	}
+			mw.runInUI(func() {
+				mw.showNotification(mw.locale.Translate("JSON exported successfully"))
+			})
+		}()
+	}, mw.window)
 
-	dialog.ShowInformation(
-		"Успешно",
-		"Документ отправлен на печать",
-		mw.window,
-	)
-}
-
-func (mw *MainWindow) openPDF(filename string) {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", filename)
-	case "darwin":
-		cmd = exec.Command("open", filename)
-	default:
-		cmd = exec.Command("xdg-open", filename)
-	}
-
-	if err := cmd.Run(); err != nil {
-		dialog.ShowError(fmt.Errorf("не удалось открыть PDF: %v", err), mw.window)
-	}
+	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".json"}))
+	saveDialog.Show()
 }
 
 func (mw *MainWindow) onShowChart() {

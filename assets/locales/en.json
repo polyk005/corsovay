@@ -28,5 +28,10 @@
     "Success": "Success",
     "Document sent to printer": "Document sent to printer",
     "Search:": "Search:",
-    "Search...": "Search..."
+    "Search...": "Search...",
+    "Export to PDF": "Export to PDF",
+    "Export to JSON": "Export to JSON",
+    "Export": "Export",
+    "Exporting to JSON...": "Exporting to JSON...",
+    "JSON exported successfully": "JSON exported successfully"
 }

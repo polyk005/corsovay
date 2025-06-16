@@ -12,8 +12,6 @@ import (
 	"image/color"
 	"io"
 	"os"
-	"os/exec"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -459,29 +457,19 @@ func (c *ManufacturerController) ExportToPDF(filePath string) error {
 	return pdf.OutputFileAndClose(filePath)
 }
 
-func (c *ManufacturerController) Print() error {
-	// Сначала экспортируем во временный PDF
-	tempFile := "print_temp.pdf"
-	if err := c.ExportToPDF(tempFile); err != nil {
-		return fmt.Errorf("failed to create print file: %v", err)
+func (c *ManufacturerController) ExportToJSON(filePath string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Convert manufacturers to JSON
+	jsonData, err := json.MarshalIndent(c.manufacturers, "", "    ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal data to JSON: %v", err)
 	}
 
-	// Определяем команду печати в зависимости от ОС
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "linux":
-		cmd = exec.Command("lp", tempFile)
-	case "darwin":
-		cmd = exec.Command("lpr", tempFile)
-	case "windows":
-		cmd = exec.Command("print", tempFile)
-	default:
-		return errors.New("printing not supported on this OS")
-	}
-
-	// Выполняем команду печати
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("printing failed: %v", err)
+	// Write to file
+	if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write JSON file: %v", err)
 	}
 
 	return nil

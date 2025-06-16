@@ -28,5 +28,10 @@
     "Success": "Успешно",
     "Document sent to printer": "Документ отправлен на печать",
     "Search:": "Поиск:",
-    "Search...": "Поиск..."
+    "Search...": "Поиск...",
+    "Export to PDF": "Экспорт в PDF",
+    "Export to JSON": "Экспорт в JSON",
+    "Export": "Экспорт",
+    "Exporting to JSON...": "Экспорт в JSON...",
+    "JSON exported successfully": "JSON успешно экспортирован"
 }
