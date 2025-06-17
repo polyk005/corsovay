@@ -83,14 +83,14 @@ type ChartConfig struct {
 // DefaultChartConfig возвращает конфигурацию по умолчанию
 func DefaultChartConfig() ChartConfig {
 	return ChartConfig{
-		Width:       600,
-		Height:      800,
-		FontSize:    12,
-		BarWidth:    20,
-		MarginTop:   10,
-		MarginRight: 10,
-		MarginLeft:  10,
-		MarginBot:   10,
+		Width:       1400,
+		Height:      1000,
+		FontSize:    16,
+		BarWidth:    40,
+		MarginTop:   30,
+		MarginRight: 30,
+		MarginLeft:  30,
+		MarginBot:   30,
 	}
 }
 
@@ -552,7 +552,7 @@ func (c *ManufacturerController) generateRevenueBarChart(manufacturers []model.M
 	}
 
 	// Создаем столбчатый график
-	bars, err := plotter.NewBarChart(plotter.Values(values), vg.Points(20))
+	bars, err := plotter.NewBarChart(plotter.Values(values), vg.Points(50))
 	if err != nil {
 		return nil, err
 	}
@@ -649,7 +649,7 @@ func (c *ManufacturerController) generateFoundedYearBarChart(manufacturers []mod
 	}
 
 	// Создаем столбчатый график
-	bars, err := plotter.NewBarChart(plotter.Values(values), vg.Points(20))
+	bars, err := plotter.NewBarChart(plotter.Values(values), vg.Points(50))
 	if err != nil {
 		return nil, err
 	}
@@ -769,7 +769,7 @@ func (c *ManufacturerController) generateProductTypePieChart(manufacturers []mod
 	}
 
 	// Создаем круговую диаграмму
-	pie, err := plotter.NewBarChart(values, vg.Points(20))
+	pie, err := plotter.NewBarChart(values, vg.Points(50))
 	if err != nil {
 		return nil, err
 	}
@@ -795,8 +795,8 @@ func (c *ManufacturerController) generateProductTypePieChart(manufacturers []mod
 func (c *ManufacturerController) generateRevenueTrendChart(manufacturers []model.Manufacturer, colorScheme string, showValues, sortData bool) ([]byte, error) {
 	config := DefaultChartConfig()
 	// Для графика тренда делаем более широкий размер
-	config.Width = 800
-	config.Height = 600
+	config.Width = 1400
+	config.Height = 1000
 	
 	// Создаем новый график
 	p := plot.New()

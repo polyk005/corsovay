@@ -1340,12 +1340,8 @@ func (mw *MainWindow) onShowChart() {
 		
 		// Создаем и настраиваем изображение
 		chartImg := canvas.NewImageFromImage(img)
-		chartImg.FillMode = canvas.ImageFillContain
-		chartImg.SetMinSize(fyne.NewSize(900, 600))
-
-		// Создаем скролл-контейнер и устанавливаем его размер
-		scrollContainer := container.NewScroll(chartImg)
-		scrollContainer.Resize(fyne.NewSize(20000, 20000))
+		chartImg.FillMode = canvas.ImageFillOriginal
+		chartImg.SetMinSize(fyne.NewSize(800, 600))
 
 		// Создаем кнопку сохранения
 		saveButton := widget.NewButton(mw.locale.Translate("Save Chart"), func() {
@@ -1382,13 +1378,12 @@ func (mw *MainWindow) onShowChart() {
 
 		// Создаем контейнер для графика и кнопки
 		content := container.NewVBox(
-			scrollContainer,
+			chartImg,
 			saveButton,
 		)
-		content.Resize(fyne.NewSize(900, 650)) // Дополнительная высота для кнопки
 
 		chartWindow.SetContent(content)
-		chartWindow.Resize(fyne.NewSize(920, 700)) // Немного больше для рамок окна
+		chartWindow.Resize(fyne.NewSize(1450, 1100)) // Увеличенный размер окна
 		chartWindow.Show()
 		chartWindow.CenterOnScreen()
 	})
@@ -1412,7 +1407,7 @@ func (mw *MainWindow) onShowChart() {
 	// Создаем окно для настроек графика (если еще не создано)
 	if mw.chartWindow == nil {
 		mw.chartWindow = mw.app.NewWindow(mw.locale.Translate("Chart Settings"))
-		mw.chartWindow.Resize(fyne.NewSize(400, 300))
+		mw.chartWindow.Resize(fyne.NewSize(500, 400))
 		mw.chartWindow.SetContent(controls)
 		mw.chartWindow.SetOnClosed(func() {
 			mw.chartWindow = nil
