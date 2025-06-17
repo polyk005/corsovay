@@ -6,8 +6,8 @@ import (
 	"cursovay/internal/view"
 	"cursovay/pkg/localization"
 	"log"
+	"os"
 	"path/filepath"
-	"runtime"
 
 	"fyne.io/fyne/app"
 )
@@ -15,18 +15,27 @@ import (
 func main() {
 	myApp := app.NewWithID("ru.mydomain.proizvoditeli")
 
-	// Определяем пути
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		log.Fatal("Не удалось определить путь к проекту")
+	// Определяем путь к системной директории для локализации
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatalf("Не удалось определить системную директорию: %v", err)
 	}
-	rootDir := filepath.Dir(filepath.Dir(filename))
-	localesDir := filepath.Join(rootDir, "assets", "locales")
+	localesDir := filepath.Join(configDir, "ManufacturersDB", "locales")
+
+	// Создаем директорию, если она не существует
+	if err := os.MkdirAll(localesDir, 0755); err != nil {
+		log.Printf("Ошибка создания директории локализации: %v", err)
+	}
 
 	// Инициализация локализации
 	locale, err := localization.NewLocale(localesDir)
 	if err != nil {
-		log.Fatalf("Ошибка загрузки локализации: %v", err)
+		log.Printf("Ошибка загрузки локализации: %v", err)
+		// Создаем пустую локализацию, если файлы не найдены
+		locale = &localization.Locale{
+			Translations: make(map[string]string),
+			Language:     "ru",
+		}
 	}
 
 	repo := repository.NewManufacturerRepository("")

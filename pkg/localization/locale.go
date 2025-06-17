@@ -7,8 +7,8 @@ import (
 )
 
 type Locale struct {
-	translations map[string]string
-	language     string
+	Translations map[string]string
+	Language     string
 }
 
 func NewLocale(localesDir string) (*Locale, error) {
@@ -29,14 +29,14 @@ func NewLocale(localesDir string) (*Locale, error) {
 	}
 
 	return &Locale{
-		translations: translations,
-		language:     lang,
+		Translations: translations,
+		Language:     lang,
 	}, nil
 }
 
 // Добавляем метод Translate
 func (l *Locale) Translate(key string) string {
-	if translation, ok := l.translations[key]; ok {
+	if translation, ok := l.Translations[key]; ok {
 		return translation
 	}
 	return key // Возвращаем ключ, если перевод не найден
@@ -57,7 +57,7 @@ func (l *Locale) SetLanguage(lang string, localesDir string) error {
 		return err
 	}
 
-	l.translations = translations
-	l.language = lang
+	l.Translations = translations
+	l.Language = lang
 	return nil
 }
