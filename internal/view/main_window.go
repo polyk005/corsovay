@@ -47,11 +47,29 @@ type MainWindow struct {
 	currentFile    string
 	unsavedChanges bool
 	selectedRow    int
+	contextMenu    *widget.PopUp // Контекстное меню
+	openFiles      map[string]*OpenFile // Открытые файлы
+	activeFile     string // Активный файл
+	dragData       *DragData // Данные для drag-and-drop
+}
+
+// Структура для хранения информации об открытом файле
+type OpenFile struct {
+	Path            string
+	Manufacturers   []model.Manufacturer
+	UnsavedChanges  bool
+	TabItem         *widget.TabItem
 }
 
 type RecentFiles struct {
 	files []string
 	max   int
+}
+
+// Данные для drag-and-drop
+type DragData struct {
+	Manufacturer model.Manufacturer
+	SourceFile   string
 }
 
 func NewRecentFiles(max int) *RecentFiles {
@@ -79,6 +97,8 @@ func NewMainWindow(app fyne.App, controller *controller.ManufacturerController, 
 		currentFile:    "",
 		unsavedChanges: false,
 		recentFiles:    NewRecentFiles(10),
+		openFiles:      make(map[string]*OpenFile),
+		activeFile:     "",
 	}
 
 	// Загружаем недавние файлы
@@ -263,6 +283,17 @@ func (mw *MainWindow) Show() {
 		mw.createRecentFilesTab(),
 	)
 
+	// Добавляем обработчик переключения вкладок
+	tabs.OnChanged = func(tab *widget.TabItem) {
+		// Если переключились на вкладку с файлом, активируем его
+		for filePath, openFile := range mw.openFiles {
+			if openFile.TabItem == tab {
+				mw.switchToFile(filePath)
+				break
+			}
+		}
+	}
+
 	mw.mainContainer = container.NewMax(tabs)
 	mw.window.SetContent(mw.mainContainer)
 	mw.window.Resize(fyne.NewSize(1400, 800))
@@ -330,25 +361,17 @@ func (mw *MainWindow) onOpen() {
 		defer reader.Close()
 
 		filePath := uriToPath(reader.URI())
-		mw.recentFiles.Add(filePath)
 		if !strings.HasSuffix(strings.ToLower(filePath), ".csv") {
 			dialog.ShowError(errors.New("выберите CSV файл"), mw.window)
 			return
 		}
 
-		// Сбрасываем текущее состояние
-		mw.controller.NewDatabase()
-
-		// Изменено здесь - игнорируем первый возвращаемый параметр
-		if _, err := mw.controller.LoadFromFile(filePath); err != nil {
+		// Открываем файл в новой вкладке
+		if err := mw.openFileInNewTab(filePath); err != nil {
 			dialog.ShowError(err, mw.window)
 			return
 		}
 
-		mw.currentFile = filePath
-		mw.unsavedChanges = false
-		mw.refreshTable()
-		mw.refreshSearchStyle() // Обновляем стиль поиска после загрузки файла
 		mw.window.SetTitle("База производителей - " + filepath.Base(filePath))
 	}, mw.window)
 
@@ -779,20 +802,83 @@ func (mw *MainWindow) onDeleteWithConfirmation(id int) {
 }
 
 func (mw *MainWindow) changeLanguage(lang string) {
-	localesDir := filepath.Join("assets", "locales") // Укажите правильный путь
+	// Загружаем новую локализацию
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		dialog.ShowError(err, mw.window)
+		return
+	}
+	
+	localesDir := filepath.Join(configDir, "ManufacturersDB", "locales")
 	if err := mw.locale.SetLanguage(lang, localesDir); err != nil {
-		log.Printf("Ошибка смены языка: %v", err)
+		dialog.ShowError(err, mw.window)
 		return
 	}
 
 	// Обновляем меню
 	mw.window.SetMainMenu(mw.setupMenu())
 
+	// Обновляем заголовок окна
+	mw.updateWindowTitle()
+
 	// Обновляем таблицу
 	mw.refreshTable()
 
-	// Обновляем заголовок окна
-	mw.window.SetTitle(mw.locale.Translate("Manufacturers Database"))
+	// Обновляем поиск
+	if mw.searchWindow != nil {
+		mw.searchWindow.SetTitle(mw.locale.Translate("Search"))
+		mw.searchEntry.SetPlaceHolder(mw.locale.Translate("Search..."))
+	}
+
+	// Обновляем вкладки
+	if mw.mainContainer != nil {
+		// Обновляем заголовки вкладок
+		if tabs, ok := mw.mainContainer.Objects[0].(*widget.TabContainer); ok {
+			for i, tab := range tabs.Items {
+				switch i {
+				case 0: // Вкладка производителей
+					tab.Text = mw.locale.Translate("Manufacturers Database")
+				case 1: // Вкладка недавних файлов
+					tab.Text = mw.locale.Translate("Recent Files")
+				}
+			}
+			tabs.Refresh()
+		}
+	}
+
+	// Обновляем все диалоги, если они открыты
+	if mw.chartWindow != nil {
+		mw.chartWindow.SetTitle(mw.locale.Translate("Chart"))
+		// Обновляем элементы управления графиком
+		if content, ok := mw.chartWindow.Content().(*fyne.Container); ok {
+			for _, obj := range content.Objects {
+				if box, ok := obj.(*fyne.Container); ok {
+					for _, control := range box.Objects {
+						if label, ok := control.(*widget.Label); ok {
+							switch label.Text {
+							case "Chart Settings":
+								label.SetText(mw.locale.Translate("Chart Settings"))
+							case "Chart Type:":
+								label.SetText(mw.locale.Translate("Chart Type:"))
+							case "Color Scheme:":
+								label.SetText(mw.locale.Translate("Color Scheme:"))
+							}
+						}
+						if btn, ok := control.(*widget.Button); ok {
+							if btn.Text == "Generate Chart" {
+								btn.SetText(mw.locale.Translate("Generate Chart"))
+							} else if btn.Text == "Save Chart" {
+								btn.SetText(mw.locale.Translate("Save Chart"))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Обновляем все элементы интерфейса
+	mw.window.Content().Refresh()
 }
 
 func (mw *MainWindow) helpMenu() {
@@ -954,6 +1040,9 @@ func (mw *MainWindow) createManufacturersTable() *widget.Table {
 		}
 	}
 
+	// Настраиваем drag-and-drop
+	mw.setupDragAndDrop(table, manufacturers, mw.currentFile)
+
 	return table
 }
 
@@ -963,6 +1052,108 @@ func (mw *MainWindow) getSortIcon() string {
 		return "^"
 	}
 	return "!^!"
+}
+
+// Создание контекстного меню
+func (mw *MainWindow) createContextMenu(manufacturer *model.Manufacturer) *widget.PopUp {
+	// Создаем элементы меню
+	editItem := fyne.NewMenuItem(mw.locale.Translate("Edit"), func() {
+		mw.contextMenu.Hide()
+		mw.showEditDialog(manufacturer, false)
+	})
+	
+	deleteItem := fyne.NewMenuItem(mw.locale.Translate("Delete"), func() {
+		mw.contextMenu.Hide()
+		mw.onDeleteWithConfirmation(manufacturer.ID)
+	})
+	
+	copyItem := fyne.NewMenuItem(mw.locale.Translate("Copy"), func() {
+		mw.contextMenu.Hide()
+		mw.copyManufacturerToClipboard(manufacturer)
+	})
+	
+	exportItem := fyne.NewMenuItem(mw.locale.Translate("Export to Word"), func() {
+		mw.contextMenu.Hide()
+		mw.exportManufacturerToWord(manufacturer)
+	})
+	
+	// Создаем меню
+	menu := fyne.NewMenu("", editItem, deleteItem, copyItem, exportItem)
+	
+	// Создаем PopUp меню
+	popup := widget.NewPopUpMenu(menu, mw.window.Canvas())
+	
+	return popup
+}
+
+// Копирование производителя в буфер обмена
+func (mw *MainWindow) copyManufacturerToClipboard(manufacturer *model.Manufacturer) {
+	text := fmt.Sprintf("ID: %d\nName: %s\nCountry: %s\nAddress: %s\nPhone: %s\nEmail: %s\nProduct Type: %s\nFounded Year: %d\nRevenue: %.2f",
+		manufacturer.ID, manufacturer.Name, manufacturer.Country, manufacturer.Address,
+		manufacturer.Phone, manufacturer.Email, manufacturer.ProductType, manufacturer.FoundedYear, manufacturer.Revenue)
+	
+	mw.window.Clipboard().SetContent(text)
+	mw.showNotification(mw.locale.Translate("Manufacturer copied to clipboard"))
+}
+
+// Экспорт производителя в Word
+func (mw *MainWindow) exportManufacturerToWord(manufacturer *model.Manufacturer) {
+	// Создаем временный файл с данными производителя
+	tempFile, err := os.CreateTemp("", "manufacturer_*.txt")
+	if err != nil {
+		dialog.ShowError(err, mw.window)
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	
+	// Формируем текст для Word
+	content := fmt.Sprintf(`Производитель строительных материалов
+
+ID: %d
+Название: %s
+Страна: %s
+Адрес: %s
+Телефон: %s
+Email: %s
+Тип продукции: %s
+Год основания: %d
+Доход: %.2f
+
+Создано: %s`, 
+		manufacturer.ID, manufacturer.Name, manufacturer.Country, manufacturer.Address,
+		manufacturer.Phone, manufacturer.Email, manufacturer.ProductType, manufacturer.FoundedYear, manufacturer.Revenue,
+		time.Now().Format("02.01.2006 15:04:05"))
+	
+	if _, err := tempFile.WriteString(content); err != nil {
+		dialog.ShowError(err, mw.window)
+		return
+	}
+	tempFile.Close()
+	
+	// Пытаемся открыть в Word или другом текстовом редакторе
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// Пробуем разные варианты для Windows
+		if path, err := exec.LookPath("winword.exe"); err == nil {
+			cmd = exec.Command(path, tempFile.Name())
+		} else if path, err := exec.LookPath("notepad.exe"); err == nil {
+			cmd = exec.Command(path, tempFile.Name())
+		} else {
+			cmd = exec.Command("cmd", "/c", "start", tempFile.Name())
+		}
+	case "darwin":
+		cmd = exec.Command("open", "-a", "TextEdit", tempFile.Name())
+	default:
+		cmd = exec.Command("xdg-open", tempFile.Name())
+	}
+	
+	if err := cmd.Start(); err != nil {
+		dialog.ShowError(fmt.Errorf("не удалось открыть файл: %v", err), mw.window)
+		return
+	}
+	
+	mw.showNotification(mw.locale.Translate("Manufacturer exported to text editor"))
 }
 
 func uriToPath(uri fyne.URI) string {
@@ -1403,4 +1594,318 @@ func (rf *RecentFiles) Add(file string) {
 
 func (rf *RecentFiles) Get() []string {
 	return rf.files
+}
+
+// Открытие нового файла в новой вкладке
+func (mw *MainWindow) openFileInNewTab(filePath string) error {
+	// Проверяем, не открыт ли уже этот файл
+	if _, exists := mw.openFiles[filePath]; exists {
+		// Переключаемся на существующую вкладку
+		mw.switchToFile(filePath)
+		return nil
+	}
+
+	// Загружаем данные из файла
+	manufacturers, err := mw.controller.LoadFromFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	// Создаем новую вкладку
+	tabItem := mw.createFileTab(filePath, manufacturers)
+	
+	// Добавляем файл в список открытых
+	mw.openFiles[filePath] = &OpenFile{
+		Path:           filePath,
+		Manufacturers:  manufacturers,
+		UnsavedChanges: false,
+		TabItem:        tabItem,
+	}
+
+	// Добавляем вкладку в контейнер
+	if tabs, ok := mw.mainContainer.Objects[0].(*widget.TabContainer); ok {
+		tabs.Append(tabItem)
+		tabs.SelectTab(tabItem)
+		tabs.Refresh()
+	}
+
+	// Переключаемся на новый файл
+	mw.switchToFile(filePath)
+	
+	// Добавляем в недавние файлы
+	mw.recentFiles.Add(filePath)
+	
+	return nil
+}
+
+// Создание вкладки для файла
+func (mw *MainWindow) createFileTab(filePath string, manufacturers []model.Manufacturer) *widget.TabItem {
+	// Создаем таблицу для этого файла
+	table := mw.createTableForFile(manufacturers, filePath)
+	
+	// Создаем поисковую панель
+	searchBox := container.NewVBox(
+		mw.setupSearch(),
+		widget.NewSeparator(),
+	)
+
+	// Создаем содержимое вкладки
+	content := container.NewBorder(
+		searchBox, nil, nil, nil,
+		container.NewScroll(table),
+	)
+
+	return widget.NewTabItem(filepath.Base(filePath), content)
+}
+
+// Создание таблицы для конкретного файла
+func (mw *MainWindow) createTableForFile(manufacturers []model.Manufacturer, filePath string) *widget.Table {
+	table := widget.NewTable(
+		func() (int, int) {
+			return len(manufacturers) + 1, 9
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("template")
+		},
+		func(tci widget.TableCellID, co fyne.CanvasObject) {
+			label := co.(*widget.Label)
+			if tci.Row == 0 {
+				// Заполняем заголовки
+				headers := []string{"Id", "Name", "Country", "Address", "Phone",
+					"Email", "Product Type", "Founded Year", "Revenue"}
+				if tci.Col < len(headers) {
+					label.SetText(headers[tci.Col])
+				}
+			} else if tci.Row-1 < len(manufacturers) {
+				// Заполняем данные
+				m := manufacturers[tci.Row-1]
+				switch tci.Col {
+				case 0:
+					label.SetText(fmt.Sprintf("%d", m.ID))
+				case 1:
+					label.SetText(m.Name)
+				case 2:
+					label.SetText(m.Country)
+				case 3:
+					label.SetText(m.Address)
+				case 4:
+					label.SetText(m.Phone)
+				case 5:
+					label.SetText(m.Email)
+				case 6:
+					label.SetText(m.ProductType)
+				case 7:
+					label.SetText(fmt.Sprintf("%d", m.FoundedYear))
+				case 8:
+					label.SetText(fmt.Sprintf("%.2f", m.Revenue))
+				}
+			}
+		},
+	)
+
+	// Настраиваем размеры столбцов
+	table.SetColumnWidth(0, 60)   // ID
+	table.SetColumnWidth(1, 180)  // Name
+	table.SetColumnWidth(2, 150)  // Country
+	table.SetColumnWidth(3, 200)  // Address
+	table.SetColumnWidth(4, 120)  // Phone
+	table.SetColumnWidth(5, 180)  // Email
+	table.SetColumnWidth(6, 150)  // Product Type
+	table.SetColumnWidth(7, 120)  // Founded Year
+	table.SetColumnWidth(8, 150)  // Revenue
+
+	// Настраиваем drag-and-drop
+	mw.setupDragAndDrop(table, manufacturers, filePath)
+
+	return table
+}
+
+// Переключение на файл
+func (mw *MainWindow) switchToFile(filePath string) {
+	if openFile, exists := mw.openFiles[filePath]; exists {
+		mw.activeFile = filePath
+		mw.currentFile = filePath
+		
+		// Обновляем данные в контроллере
+		mw.controller.UpdateManufacturers(openFile.Manufacturers)
+		
+		// Обновляем заголовок окна
+		mw.updateWindowTitle()
+		
+		// Обновляем таблицу
+		mw.refreshTable()
+	}
+}
+
+// Закрытие файла
+func (mw *MainWindow) closeFile(filePath string) {
+	if openFile, exists := mw.openFiles[filePath]; exists {
+		// Проверяем несохраненные изменения
+		if openFile.UnsavedChanges {
+			dialog.ShowConfirm(
+				mw.locale.Translate("Unsaved Changes"),
+				mw.locale.Translate("You have unsaved changes. Do you want to save them?"),
+				func(save bool) {
+					if save {
+						mw.saveFile(filePath)
+					}
+					mw.removeFile(filePath)
+				},
+				mw.window,
+			)
+		} else {
+			mw.removeFile(filePath)
+		}
+	}
+}
+
+// Удаление файла из списка открытых
+func (mw *MainWindow) removeFile(filePath string) {
+	if openFile, exists := mw.openFiles[filePath]; exists {
+		// Удаляем вкладку
+		if tabs, ok := mw.mainContainer.Objects[0].(*widget.TabContainer); ok {
+			tabs.Remove(openFile.TabItem)
+			tabs.Refresh()
+		}
+		
+		// Удаляем из списка открытых файлов
+		delete(mw.openFiles, filePath)
+		
+		// Если это был активный файл, переключаемся на другой
+		if mw.activeFile == filePath {
+			mw.activeFile = ""
+			mw.currentFile = ""
+			
+			// Переключаемся на первый доступный файл
+			for path := range mw.openFiles {
+				mw.switchToFile(path)
+				break
+			}
+		}
+	}
+}
+
+// Сохранение конкретного файла
+func (mw *MainWindow) saveFile(filePath string) {
+	if openFile, exists := mw.openFiles[filePath]; exists {
+		// Временно обновляем данные в контроллере
+		originalData := mw.controller.GetCurrentData()
+		mw.controller.UpdateManufacturers(openFile.Manufacturers)
+		
+		// Сохраняем файл
+		err := mw.controller.SaveToFile(filePath)
+		
+		// Восстанавливаем оригинальные данные
+		mw.controller.UpdateManufacturers(originalData)
+		
+		if err != nil {
+			dialog.ShowError(err, mw.window)
+			return
+		}
+		
+		openFile.UnsavedChanges = false
+		mw.showNotification(mw.locale.Translate("File saved successfully"))
+	}
+}
+
+// Настройка drag-and-drop для таблицы
+func (mw *MainWindow) setupDragAndDrop(table *widget.Table, manufacturers []model.Manufacturer, filePath string) {
+	// В Fyne v1 используем только OnSelected для обработки кликов
+	// Drag-and-drop будет реализован через контекстное меню
+}
+
+// Экспорт в MS Word через drag-and-drop
+func (mw *MainWindow) exportToWordViaDrag(manufacturer model.Manufacturer) {
+	// Создаем временный файл
+	tempFile, err := os.CreateTemp("", "manufacturer_*.rtf")
+	if err != nil {
+		dialog.ShowError(err, mw.window)
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	
+	// Создаем RTF документ
+	rtfContent := fmt.Sprintf(`{\rtf1\ansi\deff0 {\fonttbl {\f0 Times New Roman;}}
+\f0\fs24
+{\b Производитель строительных материалов}\par\par
+{\b ID:} %d\par
+{\b Название:} %s\par
+{\b Страна:} %s\par
+{\b Адрес:} %s\par
+{\b Телефон:} %s\par
+{\b Email:} %s\par
+{\b Тип продукции:} %s\par
+{\b Год основания:} %d\par
+{\b Доход:} %.2f\par\par
+{\i Создано:} %s
+}`, 
+		manufacturer.ID, manufacturer.Name, manufacturer.Country, manufacturer.Address,
+		manufacturer.Phone, manufacturer.Email, manufacturer.ProductType, manufacturer.FoundedYear, manufacturer.Revenue,
+		time.Now().Format("02.01.2006 15:04:05"))
+	
+	if _, err := tempFile.WriteString(rtfContent); err != nil {
+		dialog.ShowError(err, mw.window)
+		return
+	}
+	tempFile.Close()
+	
+	// Пытаемся открыть в Word
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		if path, err := exec.LookPath("winword.exe"); err == nil {
+			cmd = exec.Command(path, tempFile.Name())
+		} else {
+			cmd = exec.Command("cmd", "/c", "start", tempFile.Name())
+		}
+	case "darwin":
+		cmd = exec.Command("open", "-a", "Microsoft Word", tempFile.Name())
+	default:
+		cmd = exec.Command("xdg-open", tempFile.Name())
+	}
+	
+	if err := cmd.Start(); err != nil {
+		dialog.ShowError(fmt.Errorf("не удалось открыть в Word: %v", err), mw.window)
+		return
+	}
+	
+	mw.showNotification(mw.locale.Translate("Manufacturer exported to Word"))
+}
+
+// Получение следующего доступного ID
+func (mw *MainWindow) getNextID(manufacturers []model.Manufacturer) int {
+	maxID := 0
+	for _, m := range manufacturers {
+		if m.ID > maxID {
+			maxID = m.ID
+		}
+	}
+	return maxID + 1
+}
+
+// Обновление вкладки файла
+func (mw *MainWindow) refreshFileTab(filePath string) {
+	if openFile, exists := mw.openFiles[filePath]; exists {
+		// Создаем новую таблицу
+		newTable := mw.createTableForFile(openFile.Manufacturers, filePath)
+		
+		// Создаем новое содержимое
+		searchBox := container.NewVBox(
+			mw.setupSearch(),
+			widget.NewSeparator(),
+		)
+		
+		newContent := container.NewBorder(
+			searchBox, nil, nil, nil,
+			container.NewScroll(newTable),
+		)
+		
+		// Обновляем содержимое вкладки
+		openFile.TabItem.Content = newContent
+		
+		// Обновляем отображение
+		if tabs, ok := mw.mainContainer.Objects[0].(*widget.TabContainer); ok {
+			tabs.Refresh()
+		}
+	}
 }

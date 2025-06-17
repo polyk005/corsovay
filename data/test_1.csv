@@ -1,6 +1,6 @@
 ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
 1,Wind,Ekaterinburg,Gusty rd. 22,89999994444,wind@mail.ru,GRUNT,2007,0.00
-2,vnbd,bhb,bjhb,8797676,vgvcv@mail.ru,grunt,2016,9000.00
+2,vnbd,bhb,bjhb,8797676,vgvcv@mail.ra,grunt,2016,9000.00
 3,Sand,Astrakhan,Desert blvd. 8,89999997777,sand@mail.ru,Grains,2022,14769.00
 4,Rubber,Nizhny Novgorod,Bouncy st. 44,89999991122,rubber@mail.ru,Tires,2018,17654.00
 5,Plastic,Krasnodar,Polymer st. 9,89999990000,plastic@mail.ru,Pipes,1990,14900.00
@@ -9,9 +9,7 @@ ID,Name,Country,Address,Phone,Email,ProductType,FoundedYear,Revenue
 8,Nails,Tula,Sharp st. 68,89999995566,nails@mail.ru,Fasteners,2005,0.00
 9,Metal,Chelyabinsk,Steel st. 33,89999995555,metal@mail.ru,Ingots,2020,0.00
 10,Glass,Vladimir,Transparent st. 3,89999999999,glass@mail.ru,Panels,2020,0.00
-11,1,2,3,4,5555,GRUNT,2000,10.00
-12,1,2,3,4,5555,GRUNT,2000,10.00
-13,Clay,Rostov,Pottery st. 17,89999998888,clay@mail.ru,Bricks,1994,6000.00
-14,Cement,Belgorod,Hard st. 51,89999992233,cement@mail.ru,Mix,2021,0.00
-15,Bricks,Smolensk,Square st. 94,89999990013,bricks@mail.ru,Masonry,0,540.00
-16,Moscows,Russian,Moscow,8909,rbhb05@mail.ru,Pipes,2015,1290.00
+11,Clay,Rostov,Pottery st. 17,89999998888,clay@mail.ru,Bricks,1994,6000.00
+12,Cement,Belgorod,Hard st. 51,89999992233,cement@mail.ru,Mix,2021,0.00
+13,Bricks,Smolensk,Square st. 94,89999990013,bricks@mail.ru,Masonry,0,540.00
+14,Moscows,Russian,Moscow,8909,rbhb05@mail.ru,Pipes,2015,1290.00
